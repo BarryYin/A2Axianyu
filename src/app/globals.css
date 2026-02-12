@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+:root {
+  --color-primary: 24 119 242;
+  --color-accent: 249 115 22;
+  --color-surface: 255 255 255;
+  --color-muted: 241 245 249;
+  --color-border: 226 232 240;
+  --color-text: 15 23 42;
+  --color-text-muted: 100 116 139;
+}
+
+body {
+  color: rgb(var(--color-text));
+  background: linear-gradient(160deg, #fef7ed 0%, #fff7ed 40%, #fef2f2 100%);
+  min-height: 100vh;
+}
+
+.line-clamp-1 {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

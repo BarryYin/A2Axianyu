@@ -1,0 +1,105 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id                String   @id @default(cuid())
+  secondmeUserId    String   @unique @map("secondme_user_id")
+  accessToken       String   @map("access_token")
+  refreshToken      String   @map("refresh_token")
+  tokenExpiresAt    DateTime @map("token_expires_at")
+  nickname          String?
+  avatar            String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // 关联
+  products          Product[]
+  offers            Offer[]
+  conversationParticipants ConversationParticipant[]
+
+  @@map("users")
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  price       Float
+  category    String
+  condition   String   // 新旧程度
+  images      String   @default("[]") // 图片URL数组，JSON格式存储
+  status      String   @default("active") // active, sold, reserved
+
+  // 关联卖家
+  sellerId    String   @map("seller_id")
+  seller      User     @relation(fields: [sellerId], references: [id])
+
+  // AI代理信息
+  aiPersonality String? @map("ai_personality") // AI代理性格描述
+  minPrice    Float?   @map("min_price") // 最低接受价格
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // 关联
+  offers      Offer[]
+
+  @@map("products")
+}
+
+model Offer {
+  id          String   @id @default(cuid())
+  price       Float    // 出价
+  message     String?  // 附带消息
+  status      String   @default("pending") // pending, accepted, rejected
+
+  // AI 谈价：卖家 AI 的回应
+  sellerDecision String?  @map("seller_decision") // accept, counter, reject
+  counterPrice   Float?   @map("counter_price")   // 卖家还价
+  inReplyToId    String?  @map("in_reply_to_id")  // 上一轮出价 ID，用于多轮谈价
+
+  productId   String   @map("product_id")
+  product     Product  @relation(fields: [productId], references: [id])
+  buyerId     String   @map("buyer_id")
+  buyer       User     @relation(fields: [buyerId], references: [id])
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("offers")
+}
+
+model Conversation {
+  id          String   @id @default(cuid())
+  title       String?
+
+  // 关联商品（可选）
+  productId   String?  @map("product_id")
+
+  // 参与者通过中间表关联
+  participants ConversationParticipant[]
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id              String   @id @default(cuid())
+  conversationId  String   @map("conversation_id")
+  conversation    Conversation @relation(fields: [conversationId], references: [id])
+  userId          String   @map("user_id")
+  user            User     @relation(fields: [userId], references: [id])
+
+  @@unique([conversationId, userId])
+  @@map("conversation_participants")
+}

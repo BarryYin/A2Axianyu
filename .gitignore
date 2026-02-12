@@ -24,6 +24,10 @@
 .DS_Store
 *.pem
 
+# database
+*.db
+*.db-journal
+
 # debug
 npm-debug.log*
 yarn-debug.log*
@@ -33,9 +37,14 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# secondme secrets
+.secondme/state.json
+
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/generated/prisma
