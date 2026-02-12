@@ -28,6 +28,9 @@
 *.db
 *.db-journal
 
+# downloaded product images
+/public/product-images/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

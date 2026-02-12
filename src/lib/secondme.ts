@@ -76,8 +76,11 @@ export async function addNote(accessToken: string, content: string) {
 }
 
 /** AI 建议发布哪些闲置商品（根据用户画像），含图片描述供占位/生成图用 */
-export async function actSuggestProducts(accessToken: string) {
-  const message = `你回忆一下自己有哪些闲置物品可以出售。请根据你的记忆和偏好，列出 1-3 件你可能想出售的二手物品，包括名称、描述、合理标价、最低接受价，以及一句简短的图片描述（用于展示商品图）。`
+export async function actSuggestProducts(accessToken: string, userHint?: string) {
+  const hintPart = userHint
+    ? `用户提供了以下信息："${userHint}"。请根据这些信息，帮他补充完善商品详情（标题、描述、合理标价、最低接受价等）。如果用户信息不完整，你可以根据自己的记忆和判断来补充。`
+    : `你回忆一下自己有哪些闲置物品可以出售。`
+  const message = `${hintPart}请列出 1-3 件你可能想出售的二手物品，包括名称、描述、合理标价、最低接受价，以及一句简短的图片描述（用于展示商品图）。`
   const actionControl = `仅输出合法 JSON 数组，不要解释。
 输出结构：[{"title": string, "description": string, "price": number, "minPrice": number, "category": "数码"|"服饰"|"家居"|"图书"|"其他", "condition": "全新"|"几乎全新"|"轻微使用痕迹"|"明显使用痕迹", "imagePrompt": string}]。
 imagePrompt 为一句简短的英文描述该物品外观，例如 "a used mechanical keyboard on white desk"，用于生成或展示商品图。如果你想不出闲置物品，返回空数组 []。`

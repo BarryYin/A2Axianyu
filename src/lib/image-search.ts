@@ -1,13 +1,22 @@
 /**
- * 从网上搜索与商品相关的真实图片
+ * 从网上搜索商品图片并下载到本地 public/product-images/
+ * 返回本地可直接引用的路径 /product-images/xxx.jpg
  *
- * 策略（按优先级）：
- * 1. Pexels API（若配了 PEXELS_API_KEY）—— 最高画质
- * 2. Openverse API（WordPress 开源图库，免费无需 key）—— 真实实物图
- * 3. 中文关键词翻译后搜 Openverse —— 处理 AI 没给 imagePrompt 的情况
+ * 搜索策略：
+ * 1. Pexels API（若配了 PEXELS_API_KEY）
+ * 2. Openverse API（免费无需 key）
+ * 3. 中文关键词翻译后搜 Openverse
  */
 
-// 中文分类 → 英文关键词映射，用于兜底搜索
+import { writeFile, mkdir } from 'fs/promises'
+import { existsSync } from 'fs'
+import path from 'path'
+import crypto from 'crypto'
+
+// 本地存储目录（相对于项目根）
+const IMAGE_DIR = path.join(process.cwd(), 'public', 'product-images')
+
+// 中文分类 → 英文关键词
 const CATEGORY_EN: Record<string, string> = {
   数码: 'electronics gadget',
   服饰: 'clothing fashion',
@@ -16,7 +25,51 @@ const CATEGORY_EN: Record<string, string> = {
   其他: 'product item',
 }
 
-/** 用 Pexels API 搜索图片（需 PEXELS_API_KEY 环境变量） */
+/** 生成文件名 hash */
+function makeFilename(seed: string, ext: string = 'jpg'): string {
+  const hash = crypto.createHash('md5').update(seed).digest('hex').slice(0, 12)
+  return `${hash}.${ext}`
+}
+
+/** 下载图片到本地，返回本地路径；失败返回 null */
+async function downloadImage(url: string, filename: string): Promise<string | null> {
+  try {
+    // 确保目录存在
+    if (!existsSync(IMAGE_DIR)) {
+      await mkdir(IMAGE_DIR, { recursive: true })
+    }
+
+    const localPath = path.join(IMAGE_DIR, filename)
+
+    // 已经下载过就直接返回
+    if (existsSync(localPath)) {
+      return `/product-images/${filename}`
+    }
+
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(15000),
+      headers: { 'User-Agent': 'A2A-Xianyu/1.0' },
+      redirect: 'follow',
+    })
+
+    if (!res.ok) return null
+
+    const contentType = res.headers.get('content-type') || ''
+    if (!contentType.includes('image')) return null
+
+    const buffer = Buffer.from(await res.arrayBuffer())
+    if (buffer.length < 1000) return null // 太小，可能是错误页面
+
+    await writeFile(localPath, buffer)
+    console.log(`[image-search] Downloaded: ${url} → ${filename} (${(buffer.length / 1024).toFixed(0)}KB)`)
+    return `/product-images/${filename}`
+  } catch (err) {
+    console.error(`[image-search] Download failed: ${url}`, err)
+    return null
+  }
+}
+
+/** Pexels API 搜索（需 PEXELS_API_KEY） */
 async function searchPexels(query: string): Promise<string | null> {
   const key = process.env.PEXELS_API_KEY
   if (!key) return null
@@ -33,10 +86,7 @@ async function searchPexels(query: string): Promise<string | null> {
   }
 }
 
-/**
- * 用 Openverse API 搜索图片（免费，无需 API key）
- * https://api.openverse.org/v1/images/?q=xxx
- */
+/** Openverse API 搜索（免费） */
 async function searchOpenverse(query: string): Promise<string | null> {
   try {
     const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(query)}&page_size=5`
@@ -46,11 +96,11 @@ async function searchOpenverse(query: string): Promise<string | null> {
     })
     if (!res.ok) return null
     const data = await res.json()
-    // 优先选有 thumbnail 的，画质更稳定
     for (const item of data.results ?? []) {
-      const thumb = item.thumbnail ?? item.url
-      if (thumb && typeof thumb === 'string' && thumb.startsWith('http')) {
-        return thumb
+      // 优先选原图 URL（thumbnail 可能有限制）
+      const imgUrl = item.url ?? item.thumbnail
+      if (imgUrl && typeof imgUrl === 'string' && imgUrl.startsWith('http')) {
+        return imgUrl
       }
     }
     return null
@@ -59,43 +109,35 @@ async function searchOpenverse(query: string): Promise<string | null> {
   }
 }
 
-/**
- * 将中文商品标题转成可搜索的英文关键词
- * 简单策略：提取已有英文词 + 用分类映射补充
- */
+/** 中文商品标题 → 英文搜索关键词 */
 function buildEnglishQuery(title: string, category?: string): string {
-  // 提取标题中已有的英文/数字词
   const enWords = title
     .replace(/[^\w\s]/g, ' ')
     .split(/\s+/)
     .filter((w) => /^[a-zA-Z0-9]{2,}$/.test(w))
 
-  // 加上分类英文关键词
-  const catEn = CATEGORY_EN[category ?? ''] ?? 'product'
-
   if (enWords.length >= 2) {
     return enWords.slice(0, 4).join(' ')
   }
 
-  // 中文标题常见关键词映射
   const zhMap: [RegExp, string][] = [
-    [/键盘/, 'keyboard'],
-    [/鼠标/, 'mouse'],
-    [/耳机/, 'headphone'],
-    [/手机/, 'phone smartphone'],
+    [/键盘/, 'mechanical keyboard'],
+    [/鼠标/, 'computer mouse'],
+    [/耳机/, 'headphones'],
+    [/手机/, 'smartphone'],
     [/笔记本|电脑/, 'laptop computer'],
     [/平板/, 'tablet iPad'],
     [/显示器|屏幕/, 'monitor display'],
-    [/相机|摄影/, 'camera photography'],
-    [/手表|手环/, 'watch smartwatch'],
-    [/音箱|音响/, 'speaker audio'],
-    [/书|小说/, 'book novel'],
-    [/衣服|外套|T恤/, 'clothing jacket'],
+    [/相机|摄影/, 'camera'],
+    [/手表|手环/, 'smartwatch'],
+    [/音箱|音响/, 'bluetooth speaker'],
+    [/书|小说/, 'book'],
+    [/衣服|外套|T恤/, 'clothing'],
     [/鞋/, 'shoes sneakers'],
-    [/包|背包/, 'bag backpack'],
-    [/椅子/, 'chair furniture'],
-    [/灯/, 'lamp light'],
-    [/杯子/, 'cup mug'],
+    [/包|背包/, 'backpack bag'],
+    [/椅子/, 'office chair'],
+    [/灯/, 'desk lamp'],
+    [/杯子/, 'coffee mug'],
     [/游戏|主机/, 'gaming console'],
   ]
 
@@ -104,41 +146,55 @@ function buildEnglishQuery(title: string, category?: string): string {
     if (re.test(title)) matched.push(en)
   }
 
-  if (matched.length > 0) {
-    return matched.join(' ')
-  }
+  if (matched.length > 0) return matched.join(' ')
 
+  const catEn = CATEGORY_EN[category ?? ''] ?? 'product'
   return `${catEn} used secondhand`
 }
 
 /**
- * 搜索商品图片 —— 主入口
- * @param imagePrompt AI 生成的英文图片描述（可选）
- * @param title       商品中文标题
- * @param category    商品分类（数码/服饰/家居/图书/其他）
+ * 搜索商品图片并下载到本地
+ * 返回本地路径 /product-images/xxx.jpg
  */
 export async function searchProductImage(
   imagePrompt: string | undefined,
   title: string,
   category?: string
 ): Promise<string> {
-  // 1. 优先 Pexels（高画质，需 key）
+  const filename = makeFilename(title)
+
+  // 已经下载过
+  const localPath = path.join(IMAGE_DIR, filename)
+  if (existsSync(localPath)) {
+    return `/product-images/${filename}`
+  }
+
+  // 1. Pexels
   if (imagePrompt) {
     const pexelsUrl = await searchPexels(imagePrompt)
-    if (pexelsUrl) return pexelsUrl
+    if (pexelsUrl) {
+      const local = await downloadImage(pexelsUrl, filename)
+      if (local) return local
+    }
   }
 
-  // 2. Openverse（免费 + 英文 imagePrompt）
+  // 2. Openverse + imagePrompt
   if (imagePrompt) {
     const ovUrl = await searchOpenverse(imagePrompt)
-    if (ovUrl) return ovUrl
+    if (ovUrl) {
+      const local = await downloadImage(ovUrl, filename)
+      if (local) return local
+    }
   }
 
-  // 3. Openverse（用标题翻译的英文关键词）
+  // 3. Openverse + 中文标题翻译
   const enQuery = buildEnglishQuery(title, category)
   const ovUrl2 = await searchOpenverse(enQuery)
-  if (ovUrl2) return ovUrl2
+  if (ovUrl2) {
+    const local = await downloadImage(ovUrl2, filename)
+    if (local) return local
+  }
 
-  // 4. 终极兜底：placehold.co 文字占位
+  // 4. 兜底占位
   return `https://placehold.co/400x400/f1f5f9/64748b?text=${encodeURIComponent(title.slice(0, 4))}`
 }

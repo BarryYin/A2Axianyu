@@ -17,6 +17,6 @@ export function getPlaceholderImageUrl(category: string, title?: string): string
 export function getProductImageUrl(images: string[] | unknown, category: string, title?: string): string {
   const arr = Array.isArray(images) ? images : []
   const first = arr[0]
-  if (first && typeof first === 'string' && first.startsWith('http')) return first
+  if (first && typeof first === 'string' && (first.startsWith('http') || first.startsWith('/'))) return first
   return getPlaceholderImageUrl(category, title)
 }

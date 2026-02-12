@@ -4,7 +4,9 @@ import { searchProductImage } from '@/lib/image-search'
 
 /**
  * POST /api/admin/refresh-images
- * 扫描所有商品，将占位图（placehold.co）替换为真实网络图片
+ * 扫描所有商品：
+ *  - 占位图 → 搜索真实图片并下载到本地
+ *  - 外部链接 → 也下载到本地
  */
 export async function POST() {
   try {
@@ -20,31 +22,30 @@ export async function POST() {
         ? JSON.parse(p.images || '[]')
         : []
 
-      // 只刷新还是占位图的商品
-      const needsRefresh =
-        imgs.length === 0 ||
-        imgs.every((u) => u.includes('placehold.co') || u.includes('loremflickr'))
+      const first = imgs[0] || ''
 
-      if (!needsRefresh) continue
+      // 已经是本地路径，跳过
+      if (first.startsWith('/product-images/')) continue
 
-      const newUrl = await searchProductImage(undefined, p.title, p.category)
+      // 搜索 + 下载到本地
+      const localUrl = await searchProductImage(undefined, p.title, p.category)
 
-      // 跳过仍然是占位图的结果
-      if (newUrl.includes('placehold.co')) continue
+      // 跳过仍然是外部占位图的结果
+      if (!localUrl.startsWith('/product-images/')) continue
 
       await db.product.update({
         where: { id: p.id },
-        data: { images: JSON.stringify([newUrl]) },
+        data: { images: JSON.stringify([localUrl]) },
       })
       updated++
 
-      // 每张图之间稍等一下，避免触发限流
-      await new Promise((r) => setTimeout(r, 500))
+      // 避免限流
+      await new Promise((r) => setTimeout(r, 600))
     }
 
     return NextResponse.json({
       code: 0,
-      data: { total: products.length, updated, message: `已更新 ${updated} 件商品的图片` },
+      data: { total: products.length, updated, message: `已更新 ${updated} 件商品图片（下载到本地）` },
     })
   } catch (err) {
     console.error('Refresh images error:', err)
