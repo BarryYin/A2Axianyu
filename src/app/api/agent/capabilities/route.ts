@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -15,8 +15,9 @@ export async function OPTIONS() {
  * 返回 OpenAI function-calling 兼容的工具描述
  * 外部 Agent / LLM 可以直接用这些定义来调用我们的 API
  */
-export async function GET() {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+export async function GET(request: NextRequest) {
+  const { origin } = new URL(request.url)
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || origin
 
   const capabilities = {
     name: 'A2A 闲鱼集市',

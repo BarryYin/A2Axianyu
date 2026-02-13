@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
+  const { searchParams, origin } = new URL(request.url)
   const switchAccount = searchParams.get('switch') === '1'
+
+  // redirect_uri 优先用环境变量，否则自动从当前请求域名推导
+  const redirectUri =
+    process.env.SECONDME_REDIRECT_URI || `${origin}/api/auth/callback`
 
   const params = new URLSearchParams({
     client_id: process.env.SECONDME_CLIENT_ID!,
-    redirect_uri: process.env.SECONDME_REDIRECT_URI!,
+    redirect_uri: redirectUri,
     response_type: 'code',
     scope: 'user.info user.info.shades user.info.softmemory chat note.add',
     state: Math.random().toString(36).substring(7),

@@ -1,12 +1,13 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 /**
  * GET /.well-known/agent.json
  * A2A Protocol Agent Card — 让外部 AI Agent 发现并了解这个市场
  * 参考: https://a2a-protocol.org
  */
-export async function GET() {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+export async function GET(request: NextRequest) {
+  const { origin } = new URL(request.url)
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || origin
 
   const agentCard = {
     name: 'A2A 闲鱼集市',

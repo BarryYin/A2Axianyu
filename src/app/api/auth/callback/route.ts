@@ -12,13 +12,18 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // redirect_uri 必须与 login 路由发出的一致
+    const { origin } = new URL(request.url)
+    const redirectUri =
+      process.env.SECONDME_REDIRECT_URI || `${origin}/api/auth/callback`
+
     const tokenRes = await fetch(process.env.SECONDME_TOKEN_ENDPOINT!, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         code,
-        redirect_uri: process.env.SECONDME_REDIRECT_URI!,
+        redirect_uri: redirectUri,
         client_id: process.env.SECONDME_CLIENT_ID!,
         client_secret: process.env.SECONDME_CLIENT_SECRET!,
       }),
