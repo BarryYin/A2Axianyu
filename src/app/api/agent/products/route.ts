@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUser } from '@/lib/auth'
+import { getAgentActor } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { searchProductImage } from '@/lib/image-search'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Agent-API-Key',
 }
 
 /** OPTIONS — CORS preflight */
@@ -17,10 +17,35 @@ export async function OPTIONS() {
 /**
  * GET /api/agent/products
  * 浏览市场商品（无需认证）
+ *
+ * Query params:
+ *   page   - 页码（默认 1）
+ *   limit  - 每页数量（默认 20，最大 100）
+ *   category - 按分类筛选（数码/服饰/家居/图书/其他）
+ *   keyword  - 搜索关键词（匹配标题和描述）
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
+  const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '20', 10)))
+  const category = searchParams.get('category')
+  const keyword = searchParams.get('keyword')
+
+  const where: Record<string, unknown> = { status: 'active' }
+  if (category) {
+    where.category = category
+  }
+  if (keyword) {
+    where.OR = [
+      { title: { contains: keyword } },
+      { description: { contains: keyword } },
+    ]
+  }
+
+  const total = await db.product.count({ where })
+
   const products = await db.product.findMany({
-    where: { status: 'active' },
+    where,
     select: {
       id: true,
       title: true,
@@ -34,6 +59,8 @@ export async function GET() {
       _count: { select: { offers: true } },
     },
     orderBy: { createdAt: 'desc' },
+    skip: (page - 1) * limit,
+    take: limit,
   })
 
   const data = products.map((p) => ({
@@ -42,7 +69,17 @@ export async function GET() {
   }))
 
   return NextResponse.json(
-    { code: 0, data, message: `共 ${data.length} 件在售商品` },
+    {
+      code: 0,
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+      message: `第 ${page}/${Math.ceil(total / limit) || 1} 页，共 ${total} 件在售商品`,
+    },
     { headers: CORS }
   )
 }
@@ -51,19 +88,19 @@ export async function GET() {
  * POST /api/agent/products
  * Agent 发布商品（需 Bearer Token）
  *
- * Body: { title, description?, price, minPrice?, category?, condition? }
+ * Body: { title, description?, price, minPrice?, category?, condition?, images?, imagePrompt? }
  */
 export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(request)
-  if (!user) {
+  const actor = await getAgentActor(request)
+  if (!actor) {
     return NextResponse.json(
-      { code: 401, message: '认证失败，请在 Authorization 头传入 SecondMe access_token' },
+      { code: 401, message: '认证失败，请传入 SecondMe access_token 或 X-Agent-API-Key' },
       { status: 401, headers: CORS }
     )
   }
 
   const body = await request.json()
-  const { title, description, price, minPrice, category, condition } = body
+  const { title, description, price, minPrice, category, condition, images, imagePrompt } = body
 
   if (!title || !price) {
     return NextResponse.json(
@@ -72,8 +109,23 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // 搜索并下载商品图片
-  const imageUrl = await searchProductImage(undefined, title, category || '其他')
+  const normalizedImages = Array.isArray(images)
+    ? images
+        .filter((item: unknown): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter((item) => /^https?:\/\//i.test(item) || item.startsWith('/'))
+        .slice(0, 9)
+    : []
+
+  let productImages = normalizedImages
+  if (productImages.length === 0) {
+    const imageUrl = await searchProductImage(
+      typeof imagePrompt === 'string' && imagePrompt.trim() ? imagePrompt.trim() : undefined,
+      title,
+      category || '其他'
+    )
+    productImages = [imageUrl]
+  }
 
   const product = await db.product.create({
     data: {
@@ -83,16 +135,23 @@ export async function POST(request: NextRequest) {
       minPrice: minPrice != null ? Number(minPrice) : undefined,
       category: category || '其他',
       condition: condition || '轻微使用痕迹',
-      images: JSON.stringify([imageUrl]),
-      sellerId: user.id,
-      aiPersonality: 'Agent 发布',
+      images: JSON.stringify(productImages),
+      sellerId: actor.user.id,
+      aiPersonality: actor.agentClient ? `${actor.agentClient.name} 发布` : 'Agent 发布',
     },
   })
 
   return NextResponse.json(
     {
       code: 0,
-      data: { id: product.id, title: product.title, price: product.price },
+      data: {
+        id: product.id,
+        title: product.title,
+        price: product.price,
+        images: productImages,
+        actorType: actor.agentClient ? 'agent_client' : 'user',
+        agentClientId: actor.agentClient?.id ?? null,
+      },
       message: '商品发布成功',
     },
     { status: 201, headers: CORS }

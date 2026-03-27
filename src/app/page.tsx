@@ -14,7 +14,7 @@ export default async function Home() {
     category: string
     condition: string
     images: string
-    seller: { nickname: string; avatar: string | null }
+    seller: { nickname: string | null; avatar: string | null }
   }[] = []
 
   try {

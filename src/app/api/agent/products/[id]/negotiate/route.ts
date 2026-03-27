@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUser } from '@/lib/auth'
+import { getAgentActor } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { actBargain, actSellerDecision, actBuyerResponse } from '@/lib/secondme'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Agent-API-Key',
 }
 
 export async function OPTIONS() {
@@ -24,10 +24,10 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getCurrentUser(request)
-  if (!user) {
+  const actor = await getAgentActor(request)
+  if (!actor) {
     return NextResponse.json(
-      { code: 401, message: '认证失败，请在 Authorization 头传入 SecondMe access_token' },
+      { code: 401, message: '认证失败，请传入 SecondMe access_token 或 X-Agent-API-Key' },
       { status: 401, headers: CORS }
     )
   }
@@ -46,7 +46,7 @@ export async function POST(
     )
   }
 
-  if (product.sellerId === user.id) {
+  if (product.sellerId === actor.user.id) {
     return NextResponse.json(
       { code: 400, message: '不能对自己的商品谈判' },
       { status: 400, headers: CORS }
@@ -64,11 +64,18 @@ export async function POST(
   const MAX_ROUNDS = 5
   const logs: { role: string; action: string; price?: number; reason?: string }[] = []
 
-  const buyerToken = user.accessToken
+  const buyerToken = actor.user.accessToken
   const sellerToken = seller.accessToken
   const productTitle = product.title
   const listPrice = product.price
   const minPrice = product.minPrice ?? undefined
+
+  if (actor.user.tokenExpiresAt < new Date()) {
+    return NextResponse.json(
+      { code: 400, message: '买方用户的 SecondMe token 已过期，请重新登录绑定账号后再发起谈判' },
+      { status: 400, headers: CORS }
+    )
+  }
 
   try {
     // 第 1 轮：买家 AI 先判断要不要买、出多少
@@ -101,7 +108,7 @@ export async function POST(
     let offer = await db.offer.create({
       data: {
         productId,
-        buyerId: user.id,
+        buyerId: actor.user.id,
         price: offerPrice,
         message: firstBid.reason || undefined,
         status: 'pending',
@@ -184,7 +191,7 @@ export async function POST(
         const pendingOffer = await db.offer.create({
           data: {
             productId,
-            buyerId: user.id,
+            buyerId: actor.user.id,
             price: counterPrice,
             message: buyerRes.reason || undefined,
             status: 'pending_confirmation',
@@ -223,7 +230,7 @@ export async function POST(
       offer = await db.offer.create({
         data: {
           productId,
-          buyerId: user.id,
+          buyerId: actor.user.id,
           price: nextPrice,
           message: buyerRes.reason || undefined,
           status: 'pending',

@@ -1,5 +1,8 @@
+import { createHash, randomBytes } from 'crypto'
+import { AgentClient, User } from '@prisma/client'
 import { NextRequest } from 'next/server'
 import { db } from './db'
+import { getUserInfo } from './secondme'
 
 export interface SecondMeUser {
   id: string
@@ -7,15 +10,109 @@ export interface SecondMeUser {
   avatar: string
 }
 
-function getTokenFromRequest(request: NextRequest): string | null {
+const AGENT_KEY_PREFIX = 'agt_'
+
+function getBearerToken(request: NextRequest): string | null {
+  const authHeader = request.headers.get('authorization')
+  return authHeader?.replace(/^Bearer\s+/i, '').trim() ?? null
+}
+
+function getUserTokenFromRequest(request: NextRequest): string | null {
   const cookieToken = request.cookies.get('token')?.value
   if (cookieToken) return cookieToken
-  const authHeader = request.headers.get('authorization')
-  return authHeader?.replace(/^Bearer\s+/i, '') ?? null
+
+  const bearerToken = getBearerToken(request)
+  if (!bearerToken || bearerToken.startsWith(AGENT_KEY_PREFIX)) return null
+
+  return bearerToken
+}
+
+export function getAgentApiKeyFromRequest(request: NextRequest): string | null {
+  const directKey = request.headers.get('x-agent-api-key')?.trim()
+  if (directKey) return directKey
+
+  const bearerToken = getBearerToken(request)
+  if (bearerToken?.startsWith(AGENT_KEY_PREFIX)) return bearerToken
+
+  return null
+}
+
+export function hashCredential(value: string) {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+export function hashAgentApiKey(apiKey: string) {
+  return hashCredential(apiKey)
+}
+
+export function createAgentApiKey() {
+  return `${AGENT_KEY_PREFIX}${randomBytes(24).toString('hex')}`
+}
+
+function extractSecondMeProfile(payload: unknown): SecondMeUser | null {
+  if (!payload || typeof payload !== 'object') return null
+
+  const data =
+    'code' in payload && (payload as { code?: unknown }).code === 0
+      ? (payload as { data?: unknown }).data
+      : payload
+
+  if (!data || typeof data !== 'object') return null
+
+  const rawId = (data as { id?: unknown; userId?: unknown }).id ?? (data as { userId?: unknown }).userId
+  if (rawId == null) return null
+
+  const nickname =
+    (data as { nickname?: unknown; name?: unknown; email?: unknown }).nickname ??
+    (data as { name?: unknown }).name ??
+    (data as { email?: unknown }).email ??
+    ''
+
+  const avatar =
+    (data as { avatar?: unknown; avatarUrl?: unknown }).avatar ??
+    (data as { avatarUrl?: unknown }).avatarUrl ??
+    ''
+
+  return {
+    id: String(rawId),
+    nickname: typeof nickname === 'string' ? nickname : '',
+    avatar: typeof avatar === 'string' ? avatar : '',
+  }
+}
+
+async function provisionUserFromAccessToken(accessToken: string) {
+  try {
+    const payload = await getUserInfo(accessToken)
+    const profile = extractSecondMeProfile(payload)
+    if (!profile) return null
+
+    const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000)
+
+    return await db.user.upsert({
+      where: { secondmeUserId: profile.id },
+      update: {
+        accessToken,
+        tokenExpiresAt: expiresAt,
+        nickname: profile.nickname || undefined,
+        avatar: profile.avatar || undefined,
+      },
+      create: {
+        secondmeUserId: profile.id,
+        accessToken,
+        refreshToken: '',
+        tokenExpiresAt: expiresAt,
+        nickname: profile.nickname || undefined,
+        avatar: profile.avatar || undefined,
+      },
+    })
+  } catch (error) {
+    console.error('通过 access token 补建用户失败:', error)
+    return null
+  }
 }
 
 export async function getCurrentUser(request: NextRequest) {
-  const token = getTokenFromRequest(request)
+  const token = getUserTokenFromRequest(request)
   if (!token) return null
 
   try {
@@ -28,10 +125,64 @@ export async function getCurrentUser(request: NextRequest) {
       }
     })
 
-    return user
+    if (user) return user
+
+    return await provisionUserFromAccessToken(token)
   } catch (error) {
     console.error('获取用户失败:', error)
     return null
+  }
+}
+
+export async function getCurrentAgentClient(request: NextRequest) {
+  const apiKey = getAgentApiKeyFromRequest(request)
+  if (!apiKey) return null
+
+  try {
+    const agentClient = await db.agentClient.findFirst({
+      where: {
+        apiKeyHash: hashAgentApiKey(apiKey),
+        status: 'active',
+      },
+      include: {
+        ownerUser: true,
+      },
+    })
+
+    if (!agentClient) return null
+
+    await db.agentClient.update({
+      where: { id: agentClient.id },
+      data: { lastUsedAt: new Date() },
+    })
+
+    return agentClient
+  } catch (error) {
+    console.error('获取 Agent Client 失败:', error)
+    return null
+  }
+}
+
+export interface AgentActor {
+  user: User
+  agentClient: AgentClient | null
+}
+
+export async function getAgentActor(request: NextRequest): Promise<AgentActor | null> {
+  const agentClient = await getCurrentAgentClient(request)
+  if (agentClient?.ownerUser) {
+    return {
+      user: agentClient.ownerUser,
+      agentClient,
+    }
+  }
+
+  const user = await getCurrentUser(request)
+  if (!user) return null
+
+  return {
+    user,
+    agentClient: null,
   }
 }
 

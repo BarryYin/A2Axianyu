@@ -23,6 +23,12 @@ export function Nav({ variant = 'default' }: { variant?: 'default' | 'minimal' }
           {variant === 'default' && (
             <>
               <Link
+                href="/agents"
+                className="px-3 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                Agent 接入
+              </Link>
+              <Link
                 href="/sell"
                 className="px-4 py-2 text-sm font-medium text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-sm transition-colors"
               >
