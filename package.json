@@ -11,10 +11,10 @@
     "prisma:push": "prisma db push"
   },
   "dependencies": {
-    "@prisma/adapter-better-sqlite3": "^7.3.0",
+    "@prisma/adapter-better-sqlite3": "^7.7.0",
     "@prisma/client": "^7.3.0",
     "@tailwindcss/postcss": "^4.1.18",
-    "better-sqlite3": "^11.6.0",
+    "better-sqlite3": "^11.10.0",
     "next": "^16.1.6",
     "prisma": "^7.3.0",
     "react": "^19.2.4",
@@ -28,6 +28,7 @@
     "autoprefixer": "^10.4.24",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
 }

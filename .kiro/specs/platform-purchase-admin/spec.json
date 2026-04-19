@@ -1,0 +1,33 @@
+{
+  "feature_name": "platform-purchase-admin",
+  "display_name": "平台代购管理员页面",
+  "description": "AI代理议价成交后，管理员通过此页面查看待办订单、跳转闲鱼手动采购、更新订单状态、触发买家通知。",
+  "status": "implemented",
+  "created": "2026-04-18",
+  "updated": "2026-04-19T12:05:10.028499",
+  "priority": "high",
+  "owner": "John",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "phases": {
+    "requirements": "done",
+    "design": "done",
+    "tasks": "done",
+    "implementation": "done"
+  },
+  "workflow": [
+    "买家Agent与卖家Agent议价成交 → 买家付款",
+    "平台生成待办订单（商品信息+闲鱼链接+成交价）",
+    "管理员点击闲鱼链接 → 手动完成闲鱼下单",
+    "管理员回来标记：已购（填快递信息）或失败（选原因）",
+    "平台Agent通知买家：成功+物流信息，或失败+退款+推荐"
+  ]
+}

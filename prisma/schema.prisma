@@ -26,6 +26,7 @@ model User {
   conversationParticipants ConversationParticipant[]
   agentClients      AgentClient[]
   agentRegistrations AgentRegistration[]
+  orders            Order[]
 
   @@map("users")
 }
@@ -90,13 +91,19 @@ model Product {
 
   // AI代理信息
   aiPersonality String? @map("ai_personality") // AI代理性格描述
-  minPrice    Float?   @map("min_price") // 最低接受价格
+  minPrice        Float?   @map("min_price") // 最低接受价格
+  maxPrice        Float?   @map("max_price") // 最高可接受价格
+  autoAcceptPrice Float?   @map("auto_accept_price") // 自动接受阈值
+  xianyuUrl       String?  @map("xianyu_url") // 闲鱼原始链接
+  source          String?  @default("manual") // 来源：xianyu/manual/ai-generated
+  platformListed  Boolean  @default(false) @map("platform_listed") // 是否平台自营
 
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   // 关联
   offers      Offer[]
+  orders      Order[]
 
   @@map("products")
 }
@@ -148,4 +155,108 @@ model ConversationParticipant {
 
   @@unique([conversationId, userId])
   @@map("conversation_participants")
+}
+
+
+// ========== 代购订单系统 ==========
+
+model Order {
+  id              String      @id @default(cuid())
+  productId       String      @map("product_id")
+  product         Product     @relation(fields: [productId], references: [id])
+  buyerId         String      @map("buyer_id")
+  buyer           User        @relation(fields: [buyerId], references: [id])
+  status          OrderStatus @default(PENDING)
+  negotiatedPrice Float       @map("negotiated_price")
+  originalPrice   Float       @map("original_price")
+  xianyuUrl       String      @map("xianyu_url")
+
+  // 采购信息（管理员填写）
+  trackingNumber  String?     @map("tracking_number")
+  courierCompany  String?     @map("courier_company")
+  adminNotes      String?     @map("admin_notes")
+  failureReason   String?     @map("failure_reason")
+
+  // 时间戳
+  createdAt       DateTime    @default(now()) @map("created_at")
+  purchasedAt     DateTime?   @map("purchased_at")
+  shippedAt       DateTime?   @map("shipped_at")
+  deliveredAt     DateTime?   @map("delivered_at")
+  failedAt        DateTime?   @map("failed_at")
+  refundedAt      DateTime?   @map("refunded_at")
+
+  // 关联
+  negotiations    NegotiationLog[]
+  notifications   Notification[]
+
+  @@index([status])
+  @@index([buyerId])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+enum OrderStatus {
+  PENDING
+  PURCHASED
+  SHIPPED
+  DELIVERED
+  FAILED
+  REFUNDED
+}
+
+model NegotiationLog {
+  id            String            @id @default(cuid())
+  orderId       String?           @map("order_id")
+  order         Order?            @relation(fields: [orderId], references: [id])
+  productId     String            @map("product_id")
+  buyerAgentId  String            @map("buyer_agent_id")
+  sellerAgentId String            @map("seller_agent_id")
+  round         Int
+  offerPrice    Float             @map("offer_price")
+  counterPrice  Float?            @map("counter_price")
+  status        NegotiationStatus
+
+  createdAt     DateTime          @default(now()) @map("created_at")
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("negotiation_logs")
+}
+
+enum NegotiationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  COUNTER_OFFERED
+  TIMEOUT
+}
+
+model Notification {
+  id        String             @id @default(cuid())
+  orderId   String             @map("order_id")
+  order     Order              @relation(fields: [orderId], references: [id])
+  type      NotificationType
+  message   String
+  status    NotificationStatus @default(SENT)
+
+  createdAt DateTime           @default(now()) @map("created_at")
+  readAt    DateTime?          @map("read_at")
+
+  @@index([orderId])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  PURCHASE_SUCCESS
+  PURCHASE_FAILED
+  SHIPPED
+  DELIVERED
+  REFUND_COMPLETE
+  PRODUCT_RECOMMENDATION
+}
+
+enum NotificationStatus {
+  SENT
+  DELIVERED
+  READ
 }
