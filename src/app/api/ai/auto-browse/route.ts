@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUser } from '@/lib/auth'
+import { getCurrentUser, requireUsableSecondMeAccess } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { actPickProducts, actBargain, actSellerDecision, actBuyerResponse } from '@/lib/secondme'
 
@@ -27,6 +27,11 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const buyerAccess = await requireUsableSecondMeAccess(user)
+    if (!buyerAccess) {
+      return NextResponse.json({ code: 401, message: '当前账号的 SecondMe token 已过期且刷新失败，请重新登录' }, { status: 401 })
+    }
+
     // 1. 获取市场上不是自己的、仍在售的商品
     const products = await db.product.findMany({
       where: {
@@ -47,7 +52,7 @@ export async function POST(request: NextRequest) {
 
     // 2. AI 挑选感兴趣的
     const picks = await actPickProducts(
-      user.accessToken,
+      buyerAccess.accessToken,
       products.map((p) => ({
         id: p.id,
         title: p.title,
@@ -70,22 +75,22 @@ export async function POST(request: NextRequest) {
     for (const pick of picks.slice(0, 5)) {
       const product = products.find((p) => p.id === pick.id)
       if (!product) continue
-      // 卖家 token 过期则跳过
-      if (product.seller.tokenExpiresAt < new Date()) {
+      const sellerAccess = await requireUsableSecondMeAccess(product.seller)
+      if (!sellerAccess) {
         results.push({
           productId: product.id,
           productTitle: product.title,
           outcome: 'skipped',
-          reason: '卖家登录已过期',
+          reason: '卖家登录已过期且刷新失败',
           logs: [],
         })
         continue
       }
 
       const negResult = await negotiateForProduct(
-        user,
+        { id: user.id, accessToken: buyerAccess.accessToken },
         product,
-        product.seller
+        { accessToken: sellerAccess.accessToken }
       )
       results.push(negResult)
     }

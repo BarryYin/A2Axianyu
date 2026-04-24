@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUser } from '@/lib/auth'
+import { getCurrentUser, requireUsableSecondMeAccess } from '@/lib/auth'
 import { getUserInfo } from '@/lib/secondme'
 
 export async function GET(request: NextRequest) {
@@ -10,12 +10,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ code: 401, message: '未登录' }, { status: 401 })
     }
 
-    // 检查token是否过期
-    if (user.tokenExpiresAt < new Date()) {
-      return NextResponse.json({ code: 401, message: 'Token已过期' }, { status: 401 })
+    const access = await requireUsableSecondMeAccess(user)
+    if (!access) {
+      return NextResponse.json({ code: 401, message: 'Token已过期且刷新失败' }, { status: 401 })
     }
 
-    const userInfo = await getUserInfo(user.accessToken)
+    const userInfo = await getUserInfo(access.accessToken)
 
     return NextResponse.json(userInfo)
   } catch (error) {

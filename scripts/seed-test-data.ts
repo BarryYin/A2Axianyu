@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client'
+import { OrderStatus, PrismaClient } from '@prisma/client'
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 
 function createPrismaClient() {
@@ -104,7 +104,14 @@ async function main() {
     { status: 'PENDING', productIdx: 1, price: 1650, failureReason: null },
     { status: 'PURCHASED', productIdx: 2, price: 1100, failureReason: null, tracking: 'SF1234567890', courier: '顺丰速运' },
     { status: 'FAILED', productIdx: 0, price: 2500, failureReason: '卖家涨价' },
-  ]
+  ] satisfies Array<{
+    status: OrderStatus
+    productIdx: number
+    price: number
+    failureReason: string | null
+    tracking?: string
+    courier?: string
+  }>
 
   for (let i = 0; i < orderData.length; i++) {
     const o = orderData[i]

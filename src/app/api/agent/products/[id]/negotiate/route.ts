@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAgentActor } from '@/lib/auth'
+import { authorizeAgentActor, requireUsableSecondMeAccess } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { actBargain, actSellerDecision, actBuyerResponse } from '@/lib/secondme'
 
@@ -24,13 +24,14 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const actor = await getAgentActor(request)
-  if (!actor) {
+  const auth = await authorizeAgentActor(request, ['negotiate.execute'])
+  if (!auth.actor) {
     return NextResponse.json(
-      { code: 401, message: '认证失败，请传入 SecondMe access_token 或 X-Agent-API-Key' },
-      { status: 401, headers: CORS }
+      { code: auth.status, message: auth.message },
+      { status: auth.status, headers: CORS }
     )
   }
+  const { actor } = auth
 
   const { id: productId } = await params
 
@@ -64,18 +65,27 @@ export async function POST(
   const MAX_ROUNDS = 5
   const logs: { role: string; action: string; price?: number; reason?: string }[] = []
 
-  const buyerToken = actor.user.accessToken
-  const sellerToken = seller.accessToken
-  const productTitle = product.title
-  const listPrice = product.price
-  const minPrice = product.minPrice ?? undefined
-
-  if (actor.user.tokenExpiresAt < new Date()) {
+  const buyerAccess = await requireUsableSecondMeAccess(actor.user)
+  if (!buyerAccess) {
     return NextResponse.json(
-      { code: 400, message: '买方用户的 SecondMe token 已过期，请重新登录绑定账号后再发起谈判' },
+      { code: 400, message: '买方用户的 SecondMe token 已过期且刷新失败，请重新登录绑定账号后再发起谈判' },
       { status: 400, headers: CORS }
     )
   }
+
+  const sellerAccess = await requireUsableSecondMeAccess(seller)
+  if (!sellerAccess) {
+    return NextResponse.json(
+      { code: 400, message: '卖家登录已过期且刷新失败，暂无法谈价' },
+      { status: 400, headers: CORS }
+    )
+  }
+
+  const buyerToken = buyerAccess.accessToken
+  const sellerToken = sellerAccess.accessToken
+  const productTitle = product.title
+  const listPrice = product.price
+  const minPrice = product.minPrice ?? undefined
 
   try {
     // 第 1 轮：买家 AI 先判断要不要买、出多少

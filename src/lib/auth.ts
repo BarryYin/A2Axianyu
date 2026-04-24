@@ -11,6 +11,7 @@ export interface SecondMeUser {
 }
 
 const AGENT_KEY_PREFIX = 'agt_'
+const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000
 
 function getBearerToken(request: NextRequest): string | null {
   const authHeader = request.headers.get('authorization')
@@ -47,6 +48,21 @@ export function hashAgentApiKey(apiKey: string) {
 
 export function createAgentApiKey() {
   return `${AGENT_KEY_PREFIX}${randomBytes(24).toString('hex')}`
+}
+
+function parseScopes(rawScopes: string) {
+  try {
+    const parsed = JSON.parse(rawScopes || '[]')
+    return Array.isArray(parsed)
+      ? parsed.filter((scope: unknown): scope is string => typeof scope === 'string' && scope.trim().length > 0)
+      : []
+  } catch {
+    return []
+  }
+}
+
+function needsTokenRefresh(user: Pick<User, 'tokenExpiresAt'>) {
+  return user.tokenExpiresAt.getTime() <= Date.now() + TOKEN_REFRESH_BUFFER_MS
 }
 
 function extractSecondMeProfile(payload: unknown): SecondMeUser | null {
@@ -168,6 +184,12 @@ export interface AgentActor {
   agentClient: AgentClient | null
 }
 
+export interface AgentAuthorizationResult {
+  actor: AgentActor | null
+  status?: number
+  message?: string
+}
+
 export async function getAgentActor(request: NextRequest): Promise<AgentActor | null> {
   const agentClient = await getCurrentAgentClient(request)
   if (agentClient?.ownerUser) {
@@ -184,6 +206,92 @@ export async function getAgentActor(request: NextRequest): Promise<AgentActor | 
     user,
     agentClient: null,
   }
+}
+
+export function getAgentClientScopes(agentClient: AgentClient | null) {
+  if (!agentClient) return []
+  return parseScopes(agentClient.scopes)
+}
+
+export function agentClientHasScopes(agentClient: AgentClient | null, requiredScopes: string[]) {
+  if (!agentClient || requiredScopes.length === 0) return true
+  const grantedScopes = new Set(getAgentClientScopes(agentClient))
+  return requiredScopes.every((scope) => grantedScopes.has(scope))
+}
+
+export async function authorizeAgentActor(
+  request: NextRequest,
+  requiredScopes: string[] = []
+): Promise<AgentAuthorizationResult> {
+  const actor = await getAgentActor(request)
+  if (!actor) {
+    return {
+      actor: null,
+      status: 401,
+      message: '认证失败，请传入 SecondMe access_token 或 X-Agent-API-Key',
+    }
+  }
+
+  if (actor.agentClient && !agentClientHasScopes(actor.agentClient, requiredScopes)) {
+    return {
+      actor: null,
+      status: 403,
+      message: `当前 Agent Client 缺少权限：${requiredScopes.join(', ')}`,
+    }
+  }
+
+  return { actor }
+}
+
+export async function getUsableSecondMeAccess(user: User) {
+  if (!needsTokenRefresh(user)) {
+    return {
+      user,
+      accessToken: user.accessToken,
+      refreshed: false,
+    }
+  }
+
+  if (!user.refreshToken) {
+    return {
+      user,
+      accessToken: user.accessToken,
+      refreshed: false,
+    }
+  }
+
+  try {
+    const refreshed = await refreshAccessToken(user.refreshToken)
+    const updatedUser = await db.user.update({
+      where: { id: user.id },
+      data: {
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken,
+        tokenExpiresAt: refreshed.expiresAt,
+      },
+    })
+
+    return {
+      user: updatedUser,
+      accessToken: updatedUser.accessToken,
+      refreshed: true,
+    }
+  } catch (error) {
+    console.error('刷新 SecondMe access token 失败:', error)
+    return {
+      user,
+      accessToken: user.accessToken,
+      refreshed: false,
+    }
+  }
+}
+
+export async function requireUsableSecondMeAccess(user: User) {
+  const access = await getUsableSecondMeAccess(user)
+  if (access.user.tokenExpiresAt.getTime() <= Date.now()) {
+    return null
+  }
+  return access
 }
 
 export async function refreshAccessToken(refreshToken: string) {

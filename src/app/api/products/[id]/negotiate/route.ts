@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUser } from '@/lib/auth'
+import { getCurrentUser, requireUsableSecondMeAccess } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { actBargain, actSellerDecision, actBuyerResponse } from '@/lib/secondme'
 
@@ -25,12 +25,19 @@ export async function POST(
   if (product.sellerId === user.id) {
     return NextResponse.json({ code: 400, message: '不能对自己的商品出价' }, { status: 400 })
   }
-  if (product.seller.tokenExpiresAt < new Date()) {
-    return NextResponse.json({ code: 400, message: '卖家登录已过期，暂无法谈价' }, { status: 400 })
+
+  const buyerAccess = await requireUsableSecondMeAccess(user)
+  if (!buyerAccess) {
+    return NextResponse.json({ code: 400, message: '买家登录已过期且刷新失败，请重新登录后再试' }, { status: 400 })
   }
 
-  const buyerToken = user.accessToken
-  const sellerToken = product.seller.accessToken
+  const sellerAccess = await requireUsableSecondMeAccess(product.seller)
+  if (!sellerAccess) {
+    return NextResponse.json({ code: 400, message: '卖家登录已过期且刷新失败，暂无法谈价' }, { status: 400 })
+  }
+
+  const buyerToken = buyerAccess.accessToken
+  const sellerToken = sellerAccess.accessToken
   const productTitle = product.title
   const listPrice = product.price
   const minPrice = product.minPrice ?? undefined

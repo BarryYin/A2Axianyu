@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAgentActor } from '@/lib/auth'
+import { authorizeAgentActor } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { searchProductImage } from '@/lib/image-search'
 
@@ -91,13 +91,14 @@ export async function GET(request: NextRequest) {
  * Body: { title, description?, price, minPrice?, category?, condition?, images?, imagePrompt? }
  */
 export async function POST(request: NextRequest) {
-  const actor = await getAgentActor(request)
-  if (!actor) {
+  const auth = await authorizeAgentActor(request, ['products.write'])
+  if (!auth.actor) {
     return NextResponse.json(
-      { code: 401, message: '认证失败，请传入 SecondMe access_token 或 X-Agent-API-Key' },
-      { status: 401, headers: CORS }
+      { code: auth.status, message: auth.message },
+      { status: auth.status, headers: CORS }
     )
   }
+  const { actor } = auth
 
   const body = await request.json()
   const { title, description, price, minPrice, category, condition, images, imagePrompt } = body

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUser } from '@/lib/auth'
+import { getCurrentUser, requireUsableSecondMeAccess } from '@/lib/auth'
 import { actBargain } from '@/lib/secondme'
 
 export async function POST(request: NextRequest) {
@@ -7,8 +7,9 @@ export async function POST(request: NextRequest) {
   if (!user) {
     return NextResponse.json({ code: 401, message: '请先登录' }, { status: 401 })
   }
-  if (user.tokenExpiresAt < new Date()) {
-    return NextResponse.json({ code: 401, message: '登录已过期' }, { status: 401 })
+  const access = await requireUsableSecondMeAccess(user)
+  if (!access) {
+    return NextResponse.json({ code: 401, message: '登录已过期且刷新失败' }, { status: 401 })
   }
   try {
     const body = await request.json()
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-    const result = await actBargain(user.accessToken, {
+    const result = await actBargain(access.accessToken, {
       productTitle,
       productPrice: Number(productPrice),
       minPrice: minPrice != null ? Number(minPrice) : undefined

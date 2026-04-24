@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUser } from '@/lib/auth'
+import { getCurrentUser, requireUsableSecondMeAccess } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { actSuggestProducts } from '@/lib/secondme'
 import { searchProductImage } from '@/lib/image-search'
@@ -23,8 +23,13 @@ export async function POST(request: NextRequest) {
   // ──── Step 1: AI 建议（不入库） ────
   if (action === 'suggest') {
     try {
+      const userAccess = await requireUsableSecondMeAccess(user)
+      if (!userAccess) {
+        return NextResponse.json({ code: 401, message: '当前账号的 SecondMe token 已过期且刷新失败，请重新登录' }, { status: 401 })
+      }
+
       const userHint = body.hint || '' // 用户提供的简单信息："卖机械键盘，200 块"
-      const suggestions = await actSuggestProducts(user.accessToken, userHint)
+      const suggestions = await actSuggestProducts(userAccess.accessToken, userHint)
 
       if (!Array.isArray(suggestions) || suggestions.length === 0) {
         return NextResponse.json({

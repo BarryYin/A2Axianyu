@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAgentActor } from '@/lib/auth'
+import { authorizeAgentActor } from '@/lib/auth'
 import { db } from '@/lib/db'
 
 const CORS = {
@@ -17,13 +17,14 @@ export async function OPTIONS() {
  * 获取我的待确认交易（需 Bearer Token）
  */
 export async function GET(request: NextRequest) {
-  const actor = await getAgentActor(request)
-  if (!actor) {
+  const auth = await authorizeAgentActor(request, ['deals.read'])
+  if (!auth.actor) {
     return NextResponse.json(
-      { code: 401, message: '认证失败，请传入 SecondMe access_token 或 X-Agent-API-Key' },
-      { status: 401, headers: CORS }
+      { code: auth.status, message: auth.message },
+      { status: auth.status, headers: CORS }
     )
   }
+  const { actor } = auth
 
   const offers = await db.offer.findMany({
     where: {

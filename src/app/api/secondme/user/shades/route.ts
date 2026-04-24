@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUser } from '@/lib/auth'
+import { getCurrentUser, requireUsableSecondMeAccess } from '@/lib/auth'
 import { getUserShades } from '@/lib/secondme'
 
 export async function GET(request: NextRequest) {
@@ -10,7 +10,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ code: 401, message: '未登录' }, { status: 401 })
     }
 
-    const shades = await getUserShades(user.accessToken)
+    const access = await requireUsableSecondMeAccess(user)
+    if (!access) {
+      return NextResponse.json({ code: 401, message: 'Token已过期且刷新失败' }, { status: 401 })
+    }
+
+    const shades = await getUserShades(access.accessToken)
 
     return NextResponse.json(shades)
   } catch (error) {

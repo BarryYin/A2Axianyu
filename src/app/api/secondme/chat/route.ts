@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUser } from '@/lib/auth'
+import { getCurrentUser, requireUsableSecondMeAccess } from '@/lib/auth'
 import { chatWithAI } from '@/lib/secondme'
 
 export async function POST(request: NextRequest) {
@@ -19,7 +19,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const response = await chatWithAI(user.accessToken, message, {
+    const access = await requireUsableSecondMeAccess(user)
+    if (!access) {
+      return NextResponse.json({ code: 401, message: 'Token已过期且刷新失败' }, { status: 401 })
+    }
+
+    const response = await chatWithAI(access.accessToken, message, {
       sessionId,
       actionControl,
     })
