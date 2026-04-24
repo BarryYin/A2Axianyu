@@ -6,6 +6,8 @@ import { Nav } from '../components/Nav'
 import { getProductImageUrl } from '@/lib/placeholder'
 
 interface Product {
+  source?: string
+  xianyuUrl?: string | null
   id: string
   title: string
   description: string
@@ -82,6 +84,9 @@ export default function Marketplace() {
                     />
                   </div>
                   <div className="p-4">
+                    {product.source === 'xianyu' && (
+                      <span className="inline-block text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full mb-1">闲鱼搬运</span>
+                    )}
                     <h3 className="font-semibold text-slate-800 line-clamp-2 mb-1 group-hover:text-amber-600 transition-colors">
                       {product.title}
                     </h3>

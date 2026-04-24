@@ -1,0 +1,37 @@
+{
+  "feature_name": "xianyu-import",
+  "display_name": "闲鱼商品搬运",
+  "description": "用户粘贴闲鱼商品链接，系统自动抓取商品信息（标题、价格、图片、描述等）并预填到发布表单，实现一键搬运上架。",
+  "status": "implemented",
+  "created": "2026-04-24T08:21:49.139410",
+  "updated": "2026-04-24T10:08:16.999559",
+  "priority": "high",
+  "owner": "John",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "phases": {
+    "requirements": "done",
+    "design": "done",
+    "tasks": "done",
+    "implementation": "done"
+  },
+  "workflow": [
+    "用户在sell页面粘贴闲鱼商品链接",
+    "后端调用抓取API解析闲鱼页面",
+    "返回结构化数据预填发布表单",
+    "用户确认或微调后一键发布",
+    "商品标记source=xianyu并存储xianyuUrl"
+  ]
+}

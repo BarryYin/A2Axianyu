@@ -47,6 +47,8 @@ export async function POST(request: NextRequest) {
       images,
       aiPersonality,
       minPrice,
+      xianyuUrl,
+      source,
     } = await request.json()
 
     const imagesStr = Array.isArray(images) ? JSON.stringify(images) : (images ?? '[]')
@@ -60,6 +62,8 @@ export async function POST(request: NextRequest) {
         images: imagesStr,
         aiPersonality,
         minPrice,
+        xianyuUrl: xianyuUrl || null,
+        source: source || 'manual',
         sellerId: user.id,
       },
       include: {
