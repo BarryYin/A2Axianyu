@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'crypto'
 import { AgentClient, User } from '@prisma/client'
 import { NextRequest } from 'next/server'
+import { cookies } from 'next/headers'
 import { db } from './db'
 import { getUserInfo } from './secondme'
 
@@ -8,6 +9,13 @@ export interface SecondMeUser {
   id: string
   nickname: string
   avatar: string
+}
+
+export interface SessionUser {
+  userId: string
+  phone: string
+  nickname: string | null
+  isPlatformSeller: boolean
 }
 
 const AGENT_KEY_PREFIX = 'agt_'
@@ -26,6 +34,20 @@ function getUserTokenFromRequest(request: NextRequest): string | null {
   if (!bearerToken || bearerToken.startsWith(AGENT_KEY_PREFIX)) return null
 
   return bearerToken
+}
+
+// 从 session cookie 获取用户信息（新登录方式）
+export async function getSessionUser(): Promise<SessionUser | null> {
+  const cookieStore = await cookies()
+  const sessionCookie = cookieStore.get('session')?.value
+  if (!sessionCookie) return null
+
+  try {
+    const session = JSON.parse(sessionCookie) as SessionUser
+    return session
+  } catch {
+    return null
+  }
 }
 
 export function getAgentApiKeyFromRequest(request: NextRequest): string | null {
@@ -62,6 +84,7 @@ function parseScopes(rawScopes: string) {
 }
 
 function needsTokenRefresh(user: Pick<User, 'tokenExpiresAt'>) {
+  if (!user.tokenExpiresAt) return false
   return user.tokenExpiresAt.getTime() <= Date.now() + TOKEN_REFRESH_BUFFER_MS
 }
 
@@ -128,6 +151,16 @@ async function provisionUserFromAccessToken(accessToken: string) {
 }
 
 export async function getCurrentUser(request: NextRequest) {
+  // 先尝试从 session 获取（新登录方式）
+  const sessionUser = await getSessionUser()
+  if (sessionUser) {
+    const user = await db.user.findUnique({
+      where: { id: sessionUser.userId }
+    })
+    if (user) return user
+  }
+
+  // 回退到旧版 SecondMe token 方式
   const token = getUserTokenFromRequest(request)
   if (!token) return null
 
@@ -288,7 +321,7 @@ export async function getUsableSecondMeAccess(user: User) {
 
 export async function requireUsableSecondMeAccess(user: User) {
   const access = await getUsableSecondMeAccess(user)
-  if (access.user.tokenExpiresAt.getTime() <= Date.now()) {
+  if (!access.user.tokenExpiresAt || access.user.tokenExpiresAt.getTime() <= Date.now()) {
     return null
   }
   return access

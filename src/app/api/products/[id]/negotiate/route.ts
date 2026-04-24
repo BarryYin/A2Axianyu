@@ -5,6 +5,59 @@ import { actBargain, actSellerDecision, actBuyerResponse } from '@/lib/secondme'
 
 const MAX_ROUNDS = 5
 
+// 模拟 AI 买家决策（无 SecondMe 时使用）
+async function mockBuyerAIBargain(productPrice: number, minPrice?: number) {
+  // 随机出价 75%-90%
+  const discount = 0.75 + Math.random() * 0.15
+  const suggestedPrice = Math.round(productPrice * discount)
+  return {
+    suggestedPrice,
+    reason: '诚心要，能便宜点吗？这个价格我觉得比较合适',
+  }
+}
+
+// 模拟 AI 卖家决策（无 SecondMe 时使用）
+async function mockSellerAIDecision(
+  listPrice: number,
+  offerPrice: number,
+  minPrice?: number
+) {
+  const min = minPrice || listPrice * 0.85
+  const autoAccept = listPrice * 0.92
+
+  if (offerPrice >= autoAccept) {
+    return { decision: 'accept' as const, reason: '价格合理，成交！' }
+  }
+  if (offerPrice < min) {
+    const counter = Math.round((listPrice + offerPrice) / 2)
+    return {
+      decision: 'counter' as const,
+      counterPrice: counter,
+      reason: '这个价格太低了，最低只能到' + counter,
+    }
+  }
+  const counter = Math.round(listPrice * 0.95)
+  return {
+    decision: 'counter' as const,
+    counterPrice: counter,
+    reason: '接近心理价位了，再让一点',
+  }
+}
+
+// 模拟 AI 买家回应（无 SecondMe 时使用）
+async function mockBuyerAIResponse(sellerCounterPrice: number, listPrice: number) {
+  const acceptable = listPrice * 0.9
+  if (sellerCounterPrice <= acceptable) {
+    return { decision: 'accept' as const, reason: '这个价格可以接受' }
+  }
+  const myCounter = Math.round((sellerCounterPrice + listPrice * 0.88) / 2)
+  return {
+    decision: 'counter' as const,
+    counterPrice: myCounter,
+    reason: '还是有点贵，' + myCounter + '可以吗？',
+  }
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -26,18 +79,15 @@ export async function POST(
     return NextResponse.json({ code: 400, message: '不能对自己的商品出价' }, { status: 400 })
   }
 
+  // 检查是否有 SecondMe access，没有则使用模拟 AI
   const buyerAccess = await requireUsableSecondMeAccess(user)
-  if (!buyerAccess) {
-    return NextResponse.json({ code: 400, message: '买家登录已过期且刷新失败，请重新登录后再试' }, { status: 400 })
-  }
+  const sellerAccess = product.seller.isPlatformSeller
+    ? null // 平台卖家不使用 SecondMe
+    : await requireUsableSecondMeAccess(product.seller)
 
-  const sellerAccess = await requireUsableSecondMeAccess(product.seller)
-  if (!sellerAccess) {
-    return NextResponse.json({ code: 400, message: '卖家登录已过期且刷新失败，暂无法谈价' }, { status: 400 })
-  }
-
-  const buyerToken = buyerAccess.accessToken
-  const sellerToken = sellerAccess.accessToken
+  const useMockAI = !buyerAccess || !sellerAccess
+  const buyerToken = buyerAccess?.accessToken
+  const sellerToken = sellerAccess?.accessToken
   const productTitle = product.title
   const listPrice = product.price
   const minPrice = product.minPrice ?? undefined
@@ -46,11 +96,13 @@ export async function POST(
 
   try {
     // 第 1 轮：买家 AI 先判断要不要买、出多少
-    const firstBid = await actBargain(buyerToken, {
-      productTitle,
-      productPrice: listPrice,
-      minPrice,
-    })
+    const firstBid = useMockAI || !buyerToken
+      ? await mockBuyerAIBargain(listPrice, minPrice)
+      : await actBargain(buyerToken, {
+          productTitle,
+          productPrice: listPrice,
+          minPrice,
+        })
     const offerPrice = firstBid.suggestedPrice != null && firstBid.suggestedPrice > 0
       ? firstBid.suggestedPrice
       : Math.round(listPrice * 0.8)
@@ -81,12 +133,14 @@ export async function POST(
 
     for (let round = 1; round <= MAX_ROUNDS; round++) {
       // 卖家 AI 决策
-      const sellerRes = await actSellerDecision(sellerToken, {
-        productTitle,
-        listPrice,
-        minPrice,
-        offerPrice: offer.price,
-      })
+      const sellerRes = useMockAI || !sellerToken
+        ? await mockSellerAIDecision(listPrice, offer.price, minPrice)
+        : await actSellerDecision(sellerToken, {
+            productTitle,
+            listPrice,
+            minPrice,
+            offerPrice: offer.price,
+          })
       logs.push({
         role: 'seller',
         action: sellerRes.decision,
@@ -131,11 +185,13 @@ export async function POST(
 
       // 卖家还价 → 买家 AI 回应
       const counterPrice = sellerRes.counterPrice ?? offer.price
-      const buyerRes = await actBuyerResponse(buyerToken, {
-        productTitle,
-        listPrice,
-        sellerCounterPrice: counterPrice,
-      })
+      const buyerRes = useMockAI || !buyerToken
+        ? await mockBuyerAIResponse(counterPrice, listPrice)
+        : await actBuyerResponse(buyerToken, {
+            productTitle,
+            listPrice,
+            sellerCounterPrice: counterPrice,
+          })
       logs.push({
         role: 'buyer',
         action: buyerRes.decision,

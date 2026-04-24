@@ -11,14 +11,19 @@ datasource db {
 
 model User {
   id                String   @id @default(cuid())
-  secondmeUserId    String   @unique @map("secondme_user_id")
-  accessToken       String   @map("access_token")
-  refreshToken      String   @map("refresh_token")
-  tokenExpiresAt    DateTime @map("token_expires_at")
+  phone             String   @unique
+  password          String
   nickname          String?
   avatar            String?
+  isPlatformSeller  Boolean  @default(false) @map("is_platform_seller")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // SecondMe 可选绑定（老字段保留但可选）
+  secondmeUserId    String?  @unique @map("secondme_user_id")
+  accessToken       String?  @map("access_token")
+  refreshToken      String?  @map("refresh_token")
+  tokenExpiresAt    DateTime? @map("token_expires_at")
 
   // 关联
   products          Product[]

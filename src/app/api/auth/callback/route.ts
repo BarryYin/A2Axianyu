@@ -50,6 +50,9 @@ export async function GET(request: NextRequest) {
     const secondmeUserId = d.id ?? d.userId ?? String(d.id)
     const nickname = d.nickname ?? d.name ?? d.email ?? ''
     const avatar = d.avatar ?? d.avatarUrl ?? ''
+    // 为 SecondMe 用户生成虚拟手机号（以 999 开头）
+    const phone = `999${secondmeUserId.slice(0, 8).padStart(8, '0')}`
+    const password = await crypto.randomUUID() // 随机密码
 
     const expiresAt = new Date(Date.now() + expiresIn * 1000)
 
@@ -63,6 +66,8 @@ export async function GET(request: NextRequest) {
         avatar,
       },
       create: {
+        phone,
+        password,
         secondmeUserId,
         accessToken,
         refreshToken,

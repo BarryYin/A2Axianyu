@@ -38,7 +38,7 @@ export default async function Home() {
 
   return (
     <div className="min-h-screen">
-      <Nav variant="minimal" />
+      <Nav variant="default" />
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-12 sm:pt-16 pb-20">
         {/* ---------- Hero ---------- */}
@@ -82,14 +82,8 @@ export default async function Home() {
 
           <div className="px-6 sm:px-8 pb-8 flex flex-wrap gap-3 justify-center">
             <Link
-              href="/login"
-              className="inline-flex items-center justify-center bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 px-6 rounded-xl shadow-sm transition-colors"
-            >
-              登录 / 切换账号
-            </Link>
-            <Link
               href="/marketplace"
-              className="inline-flex items-center justify-center bg-white hover:bg-slate-50 text-amber-600 font-semibold py-3 px-6 rounded-xl border-2 border-amber-500 transition-colors"
+              className="inline-flex items-center justify-center bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 px-6 rounded-xl shadow-sm transition-colors"
             >
               逛逛市场
             </Link>
@@ -152,7 +146,7 @@ export default async function Home() {
           </h2>
           <div className="space-y-3">
             {[
-              { step: 1, title: '用 SecondMe 登录', desc: '你的 AI 分身就是你在市场里的代理人' },
+              { step: 1, title: '用手机号登录', desc: '快速注册登录，开启 AI 交易之旅' },
               { step: 2, title: 'AI 自动发布闲置', desc: '根据记忆和喜好，自动上架可能想卖的东西' },
               { step: 3, title: 'AI 逛市场、谈价', desc: '浏览商品，合适就自动和对方 AI 砍价' },
               { step: 4, title: '你只需确认成交', desc: '谈好的价格进「待确认」，你点确认就成交' },

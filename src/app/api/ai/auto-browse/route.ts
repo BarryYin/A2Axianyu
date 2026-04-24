@@ -75,7 +75,12 @@ export async function POST(request: NextRequest) {
     for (const pick of picks.slice(0, 5)) {
       const product = products.find((p) => p.id === pick.id)
       if (!product) continue
-      const sellerAccess = await requireUsableSecondMeAccess(product.seller)
+      // 平台卖家使用模拟 SecondMe 访问
+      const sellerAccess = product.seller.isPlatformSeller
+        ? { accessToken: buyerAccess.accessToken } // 平台卖家使用买家 token 模拟
+        : product.seller.accessToken
+          ? await requireUsableSecondMeAccess(product.seller)
+          : null
       if (!sellerAccess) {
         results.push({
           productId: product.id,

@@ -1,17 +1,54 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
-  const loginUrl = '/api/auth/login'
-  const switchUrl = '/api/auth/login?switch=1'
+  const [isLogin, setIsLogin] = useState(true)
+  const [phone, setPhone] = useState('')
+  const [password, setPassword] = useState('')
+  const [nickname, setNickname] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const router = useRouter()
 
-  const openInNewWindow = (url: string) => {
-    window.open(url, '_blank', 'noopener,noreferrer,width=520,height=700')
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+
+    try {
+      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register'
+      const body = isLogin
+        ? { phone, password }
+        : { phone, password, nickname }
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        setError(data.error || (isLogin ? '登录失败' : '注册失败'))
+        return
+      }
+
+      // 登录/注册成功，跳转首页
+      router.push('/')
+      router.refresh()
+    } catch (err) {
+      setError('网络错误，请重试')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
       <header className="border-b border-slate-200/80 bg-white/90 backdrop-blur-sm">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center">
           <Link href="/" className="font-bold text-slate-800 hover:text-amber-600 transition-colors">
@@ -22,57 +59,89 @@ export default function LoginPage() {
 
       <main className="max-w-md mx-auto px-4 py-12 sm:py-16">
         <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-6 sm:p-8">
-          <h1 className="text-2xl font-bold text-slate-800 mb-1">登录 A2A 闲鱼</h1>
+          <h1 className="text-2xl font-bold text-slate-800 mb-1">
+            {isLogin ? '登录 A2A 闲鱼' : '注册账号'}
+          </h1>
           <p className="text-slate-600 text-sm mb-6">
-            使用 SecondMe（MindVerse）账号登录，你的 AI 将代表你发布、逛市场、谈价。
+            {isLogin
+              ? '使用手机号和密码登录，开始 AI 交易之旅'
+              : '注册账号，体验 AI 代理帮你交易闲置物品'}
           </p>
 
-          <Link
-            href={loginUrl}
-            className="block w-full text-center bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 px-6 rounded-xl shadow-sm transition-colors"
-          >
-            使用当前账号登录
-          </Link>
-          <p className="text-xs text-slate-500 text-center mt-3">
-            将跳转到 SecondMe 授权页，通常会自动使用浏览器已登录的账号
-          </p>
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
+              {error}
+            </div>
+          )}
 
-          <div className="mt-8 pt-6 border-t border-slate-200">
-            <h2 className="text-sm font-semibold text-slate-700 mb-2">要用其他账号？</h2>
-            <p className="text-sm text-slate-600 mb-4">
-              SecondMe 授权页会直接用当前浏览器里已登录的 MindVerse 账号。要换账号可以：
-            </p>
-            <ul className="text-sm text-slate-600 space-y-2 mb-4 list-disc list-inside">
-              <li>
-                <a
-                  href="https://app.mindos.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-amber-600 hover:underline font-medium"
-                >
-                  先到 MindVerse 退出当前账号
-                </a>
-                ，再点「使用当前账号登录」
-              </li>
-              <li>
-                <button
-                  type="button"
-                  onClick={() => openInNewWindow(switchUrl)}
-                  className="text-amber-600 hover:underline font-medium"
-                >
-                  在新窗口登录
-                </button>
-                （新窗口有时会要求重新登录）
-              </li>
-              <li>或用无痕/隐私窗口打开本页再登录</li>
-            </ul>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {!isLogin && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  昵称（可选）
+                </label>
+                <input
+                  type="text"
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  placeholder="请输入昵称"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition-all"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                手机号
+              </label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="请输入手机号"
+                maxLength={11}
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition-all"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                密码
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="请输入密码"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none transition-all"
+              />
+            </div>
+
             <button
-              type="button"
-              onClick={() => openInNewWindow(switchUrl)}
-              className="w-full text-center bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium py-2.5 px-6 rounded-xl transition-colors text-sm"
+              type="submit"
+              disabled={loading}
+              className="w-full bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white font-semibold py-3 px-6 rounded-xl shadow-sm transition-colors"
             >
-              在新窗口打开登录页
+              {loading ? (isLogin ? '登录中...' : '注册中...') : (isLogin ? '登录' : '注册')}
             </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <button
+              onClick={() => {
+                setIsLogin(!isLogin)
+                setError('')
+              }}
+              className="text-sm text-amber-600 hover:text-amber-700 font-medium"
+            >
+              {isLogin ? '没有账号？立即注册' : '已有账号？立即登录'}
+            </button>
+          </div>
+
+          <div className="mt-6 pt-6 border-t border-slate-200">
+            <p className="text-xs text-slate-500 text-center">
+              登录即表示您同意我们的服务条款和隐私政策
+            </p>
           </div>
         </div>
       </main>
