@@ -22,17 +22,22 @@ export default function AgentSharePage() {
   const [error, setError] = useState('')
 
   async function loadApiKey() {
+    console.log('[Debug] loadApiKey started')
     try {
       const res = await fetch('/api/agent/clients', { credentials: 'include' })
+      console.log('[Debug] API response status:', res.status)
       if (res.status === 401) {
         setError('请先登录网站后再访问此页面')
+        setLoading(false)
         return
       }
       if (!res.ok) {
         setError(`API 错误: ${res.status}`)
+        setLoading(false)
         return
       }
       const data = await res.json()
+      console.log('[Debug] API data:', data)
       if (data.code === 0 && data.data && data.data.length > 0) {
         const activeClient = data.data.find((c: any) => c.status === 'active')
         if (activeClient) {
@@ -44,8 +49,10 @@ export default function AgentSharePage() {
         }
       }
     } catch (err) {
+      console.error('[Debug] Error:', err)
       setError('加载失败: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
+      console.log('[Debug] Setting loading to false')
       setLoading(false)
     }
   }
