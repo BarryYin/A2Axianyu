@@ -14,11 +14,94 @@ export async function OPTIONS() {
 }
 
 /**
+ * 本地模拟 AI 谈判逻辑 - 当 SecondMe 不可用时使用
+ */
+function simulateBargain(productTitle: string, listPrice: number, minPrice?: number) {
+  // 买方 AI：根据价格决定是否购买，出价在 60%-90% 之间
+  const discount = 0.6 + Math.random() * 0.3 // 60%-90%
+  const suggestedPrice = Math.round(listPrice * discount)
+
+  if (suggestedPrice < (minPrice ?? listPrice * 0.5)) {
+    return {
+      suggestedPrice: suggestedPrice,
+      reason: `对产品感兴趣，出价 ¥${suggestedPrice}（${Math.round(discount * 100)}%）`,
+    }
+  }
+
+  return {
+    suggestedPrice,
+    reason: `愿意购买 ${productTitle}，出价 ¥${suggestedPrice}`,
+  }
+}
+
+function simulateSellerDecision(
+  listPrice: number,
+  minPrice: number | undefined,
+  offerPrice: number
+): { decision: 'accept' | 'reject' | 'counter'; counterPrice?: number; reason: string } {
+  const effectiveMin = minPrice ?? listPrice * 0.7
+
+  // 如果出价高于最低接受价，80% 概率接受
+  if (offerPrice >= effectiveMin) {
+    if (Math.random() > 0.2) {
+      return {
+        decision: 'accept',
+        reason: `出价 ¥${offerPrice} 符合心理预期，接受！`,
+      }
+    }
+  }
+
+  // 如果出价太低，直接拒绝
+  if (offerPrice < effectiveMin * 0.8) {
+    return {
+      decision: 'reject',
+      reason: `出价 ¥${offerPrice} 太低，低于底线 ¥${Math.round(effectiveMin * 0.8)}，拒绝`,
+    }
+  }
+
+  // 还价：在最低接受价和出价之间
+  const counterPrice = Math.round((effectiveMin + offerPrice) / 2)
+  return {
+    decision: 'counter',
+    counterPrice,
+    reason: `出价 ¥${offerPrice} 偏低，还价 ¥${counterPrice}`,
+  }
+}
+
+function simulateBuyerResponse(
+  listPrice: number,
+  sellerCounterPrice: number
+): { decision: 'accept' | 'reject' | 'counter'; counterPrice?: number; reason: string } {
+  // 如果卖家还价在接受范围内（低于原价85%），接受
+  if (sellerCounterPrice <= listPrice * 0.85) {
+    return {
+      decision: 'accept',
+      reason: `还价 ¥${sellerCounterPrice} 合理，接受！`,
+    }
+  }
+
+  // 如果还价太高，有 50% 概率放弃，50% 概率继续还价
+  if (Math.random() > 0.5) {
+    return {
+      decision: 'reject',
+      reason: `还价 ¥${sellerCounterPrice} 仍偏高，放弃购买`,
+    }
+  }
+
+  // 继续还价
+  const counterPrice = Math.round(sellerCounterPrice * 0.9)
+  return {
+    decision: 'counter',
+    counterPrice,
+    reason: `还价 ¥${sellerCounterPrice} 还是高了，再出价 ¥${counterPrice}`,
+  }
+}
+
+/**
  * POST /api/agent/products/:id/negotiate
- * Agent 发起 AI-to-AI 自动谈判（需 Bearer Token）
+ * Agent 发起 AI-to-AI 自动谈判
  *
- * 买方 Agent 调用，系统会调用买方和卖方的 SecondMe Act API 多轮谈判
- * 谈成后进入 pending_confirmation 等待人类确认
+ * 优先使用 SecondMe AI，如果 token 过期则使用本地模拟逻辑
  */
 export async function POST(
   request: NextRequest,
@@ -55,45 +138,31 @@ export async function POST(
   }
 
   const seller = product.seller
-  if (!seller.accessToken) {
-    return NextResponse.json(
-      { code: 400, message: '卖家 Agent 不在线（无 token）' },
-      { status: 400, headers: CORS }
-    )
-  }
+
+  // 检查是否使用 SecondMe（可选）
+  const buyerAccess = await requireUsableSecondMeAccess(actor.user)
+  const sellerAccess = await requireUsableSecondMeAccess(seller)
+  const useSecondMe = buyerAccess && sellerAccess
 
   const MAX_ROUNDS = 5
   const logs: { role: string; action: string; price?: number; reason?: string }[] = []
 
-  const buyerAccess = await requireUsableSecondMeAccess(actor.user)
-  if (!buyerAccess) {
-    return NextResponse.json(
-      { code: 400, message: '买方用户的 SecondMe token 已过期且刷新失败，请重新登录绑定账号后再发起谈判' },
-      { status: 400, headers: CORS }
-    )
-  }
-
-  const sellerAccess = await requireUsableSecondMeAccess(seller)
-  if (!sellerAccess) {
-    return NextResponse.json(
-      { code: 400, message: '卖家登录已过期且刷新失败，暂无法谈价' },
-      { status: 400, headers: CORS }
-    )
-  }
-
-  const buyerToken = buyerAccess.accessToken
-  const sellerToken = sellerAccess.accessToken
   const productTitle = product.title
   const listPrice = product.price
   const minPrice = product.minPrice ?? undefined
 
   try {
     // 第 1 轮：买家 AI 先判断要不要买、出多少
-    const firstBid = await actBargain(buyerToken, {
-      productTitle,
-      productPrice: listPrice,
-      minPrice,
-    })
+    let firstBid
+    if (useSecondMe) {
+      firstBid = await actBargain(buyerAccess.accessToken, {
+        productTitle,
+        productPrice: listPrice,
+        minPrice,
+      })
+    } else {
+      firstBid = simulateBargain(productTitle, listPrice, minPrice)
+    }
 
     // AI 不感兴趣（suggestedPrice 为 0 或 null）
     if (firstBid.suggestedPrice == null || firstBid.suggestedPrice <= 0) {
@@ -105,6 +174,7 @@ export async function POST(
             reason: firstBid.reason || 'AI 暂不感兴趣',
             rounds: 0,
             logs: [{ role: 'buyer', action: '跳过', reason: firstBid.reason || '暂不感兴趣' }],
+            mode: useSecondMe ? 'secondme' : 'simulated',
           },
           message: '买方 AI 对该商品不感兴趣',
         },
@@ -127,12 +197,18 @@ export async function POST(
 
     for (let round = 1; round <= MAX_ROUNDS; round++) {
       // 卖家 AI 决策
-      const sellerRes = await actSellerDecision(sellerToken, {
-        productTitle,
-        listPrice,
-        minPrice,
-        offerPrice: offer.price,
-      })
+      let sellerRes
+      if (useSecondMe) {
+        sellerRes = await actSellerDecision(sellerAccess.accessToken, {
+          productTitle,
+          listPrice,
+          minPrice,
+          offerPrice: offer.price,
+        })
+      } else {
+        sellerRes = simulateSellerDecision(listPrice, minPrice, offer.price)
+      }
+
       logs.push({
         role: 'seller',
         action: sellerRes.decision,
@@ -162,6 +238,7 @@ export async function POST(
               offerId: offer.id,
               rounds: round,
               logs,
+              mode: useSecondMe ? 'secondme' : 'simulated',
             },
             message: `谈判成功！成交价 ¥${offer.price}，等待人类确认`,
           },
@@ -176,7 +253,7 @@ export async function POST(
         return NextResponse.json(
           {
             code: 0,
-            data: { outcome: 'rejected', offerId: offer.id, rounds: round, logs },
+            data: { outcome: 'rejected', offerId: offer.id, rounds: round, logs, mode: useSecondMe ? 'secondme' : 'simulated' },
             message: '卖家 AI 拒绝了出价',
           },
           { headers: CORS }
@@ -185,11 +262,17 @@ export async function POST(
 
       // 卖家还价 → 买家 AI 回应
       const counterPrice = sellerRes.counterPrice ?? offer.price
-      const buyerRes = await actBuyerResponse(buyerToken, {
-        productTitle,
-        listPrice,
-        sellerCounterPrice: counterPrice,
-      })
+      let buyerRes
+      if (useSecondMe) {
+        buyerRes = await actBuyerResponse(buyerAccess.accessToken, {
+          productTitle,
+          listPrice,
+          sellerCounterPrice: counterPrice,
+        })
+      } else {
+        buyerRes = simulateBuyerResponse(listPrice, counterPrice)
+      }
+
       logs.push({
         role: 'buyer',
         action: buyerRes.decision,
@@ -218,6 +301,7 @@ export async function POST(
               offerId: pendingOffer.id,
               rounds: round,
               logs,
+              mode: useSecondMe ? 'secondme' : 'simulated',
             },
             message: `谈判成功！成交价 ¥${counterPrice}，等待人类确认`,
           },
@@ -228,7 +312,7 @@ export async function POST(
         return NextResponse.json(
           {
             code: 0,
-            data: { outcome: 'rejected', offerId: offer.id, rounds: round, logs },
+            data: { outcome: 'rejected', offerId: offer.id, rounds: round, logs, mode: useSecondMe ? 'secondme' : 'simulated' },
             message: '买方 AI 放弃了谈判',
           },
           { headers: CORS }
@@ -257,6 +341,7 @@ export async function POST(
           offerId: offer.id,
           rounds: MAX_ROUNDS,
           logs,
+          mode: useSecondMe ? 'secondme' : 'simulated',
         },
         message: '达到最大轮次，未成交',
       },
