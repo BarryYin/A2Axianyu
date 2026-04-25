@@ -69,18 +69,39 @@ export async function POST(
     data: { status: 'sold' },
   })
 
+  // 创建订单
+  const order = await db.order.create({
+    data: {
+      productId: offer.productId,
+      buyerId: offer.buyerId,
+      negotiatedPrice: offer.price,
+      originalPrice: offer.product.price,
+      status: 'PENDING',
+    },
+  })
+
+  // 创建订单通知
+  await db.notification.create({
+    data: {
+      orderId: order.id,
+      type: 'PURCHASE_SUCCESS',
+      message: `订单已生成：${offer.product.title}，成交价 ¥${offer.price}`,
+    },
+  })
+
   return NextResponse.json(
     {
       code: 0,
       data: {
         offerId,
+        orderId: order.id,
         productId: offer.productId,
         finalPrice: offer.price,
         status: 'accepted',
         actorType: actor.agentClient ? 'agent_client' : 'user',
         agentClientId: actor.agentClient?.id ?? null,
       },
-      message: '交易确认成功，商品已标记为已售',
+      message: '交易确认成功，订单已生成',
     },
     { headers: CORS }
   )
