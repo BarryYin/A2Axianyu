@@ -48,6 +48,8 @@ export default function Marketplace() {
     )
   }
 
+  console.log('[Marketplace] Products loaded:', products.length, products)
+
   return (
     <div className="min-h-screen">
       <Nav />
