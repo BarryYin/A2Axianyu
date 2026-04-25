@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireUsableSecondMeAccess } from '@/lib/auth'
+import { addNote } from '@/lib/secondme'
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
   PENDING: ['PURCHASED', 'FAILED'],
@@ -18,8 +20,14 @@ export async function PATCH(
     const body = await request.json()
     const { status: newStatus, trackingNumber, courierCompany, adminNotes, failureReason } = body
 
-    // Get current order
-    const order = await db.order.findUnique({ where: { id } })
+    // Get current order with buyer info
+    const order = await db.order.findUnique({
+      where: { id },
+      include: {
+        buyer: true,
+        product: { select: { title: true } },
+      },
+    })
     if (!order) {
       return NextResponse.json({ error: 'Order not found' }, { status: 404 })
     }
@@ -91,6 +99,22 @@ export async function PATCH(
           message: notificationMessage,
         },
       })
+
+      // Push notification to buyer's SecondMe AI agent
+      try {
+        const buyer = order.buyer
+        if (buyer?.accessToken) {
+          const access = await requireUsableSecondMeAccess(buyer)
+          if (access && access.accessToken) {
+            const noteContent = `[订单通知] ${order.product.title} — ${notificationMessage}`
+            await addNote(access.accessToken, noteContent)
+            console.log(`Notification pushed to buyer ${buyer.id} (order ${id}): ${notificationType}`)
+          }
+        }
+      } catch (pushError) {
+        // Push failure should not block status update
+        console.error('Failed to push notification to buyer agent:', pushError)
+      }
     }
 
     return NextResponse.json(updated)

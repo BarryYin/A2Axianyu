@@ -28,15 +28,39 @@ export async function POST(
     return NextResponse.json({ code: 403, message: '无权操作' }, { status: 403 })
   }
 
+  // 更新 offer 和商品状态
   await db.offer.update({
     where: { id: offerId },
     data: { status: 'accepted' },
   })
-  // 商品标记为已售
   await db.product.update({
     where: { id: offer.productId },
     data: { status: 'sold' },
   })
 
-  return NextResponse.json({ code: 0, message: '交易确认成功' })
+  // 创建订单
+  const order = await db.order.create({
+    data: {
+      productId: offer.productId,
+      buyerId: offer.buyerId,
+      negotiatedPrice: offer.price,
+      originalPrice: offer.product.price,
+      status: 'PENDING',
+    },
+  })
+
+  // 创建订单通知
+  await db.notification.create({
+    data: {
+      orderId: order.id,
+      type: 'PURCHASE_SUCCESS',
+      message: `订单已生成：${offer.product.title}，成交价 ¥${offer.price}`,
+    },
+  })
+
+  return NextResponse.json({
+    code: 0,
+    message: '交易确认成功',
+    data: { orderId: order.id, price: order.negotiatedPrice },
+  })
 }

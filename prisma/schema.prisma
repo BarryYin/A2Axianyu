@@ -174,7 +174,7 @@ model Order {
   status          OrderStatus @default(PENDING)
   negotiatedPrice Float       @map("negotiated_price")
   originalPrice   Float       @map("original_price")
-  xianyuUrl       String      @map("xianyu_url")
+  xianyuUrl       String?     @map("xianyu_url")
 
   // 采购信息（管理员填写）
   trackingNumber  String?     @map("tracking_number")

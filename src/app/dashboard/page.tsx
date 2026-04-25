@@ -37,6 +37,13 @@ interface SuggestedItem {
   imagePrompt: string
 }
 
+interface MeUser {
+  userId: string
+  phone: string
+  nickname: string | null
+  isPlatformSeller: boolean
+}
+
 interface AutoBrowseResult {
   results: {
     productId: string
@@ -50,11 +57,22 @@ interface AutoBrowseResult {
   message?: string
 }
 
+interface Order {
+  id: string
+  price: number
+  originalPrice: number
+  status: string
+  role: 'buyer' | 'seller'
+  product: { id: string; title: string; image: string }
+  counterpart: string
+  createdAt: string
+}
+
 export default function DashboardPage() {
   const [pendingDeals, setPendingDeals] = useState<PendingDeal[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'pending' | 'selling' | 'ai'>('pending')
+  const [tab, setTab] = useState<'pending' | 'selling' | 'ai' | 'orders'>('pending')
 
   // AI 发布 — 两步流程
   const [publishHint, setPublishHint] = useState('') // 用户输入的提示
@@ -71,20 +89,29 @@ export default function DashboardPage() {
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
   const [refreshingImages, setRefreshingImages] = useState(false)
   const [refreshImageMsg, setRefreshImageMsg] = useState('')
+  const [me, setMe] = useState<MeUser | null>(null)
+  const [orders, setOrders] = useState<Order[]>([])
 
   const fetchData = useCallback(async () => {
     try {
-      const [pendingRes, prodRes] = await Promise.all([
+      const [pendingRes, prodRes, meRes] = await Promise.all([
         fetch('/api/me/pending-deals', { credentials: 'include' }),
         fetch('/api/me/products', { credentials: 'include' }),
+        fetch('/api/me'),
+        fetch('/api/me/orders', { credentials: 'include' }),
       ])
       if (pendingRes.status === 401 || prodRes.status === 401) {
         window.location.href = '/'
         return
       }
-      const [pendingData, prodData] = await Promise.all([pendingRes.json(), prodRes.json()])
+      const [pendingData, prodData, meData, orderData] = await Promise.all([
+        pendingRes.json(), prodRes.json(), meRes.json(),
+        fetch('/api/me/orders', { credentials: 'include' }).then(r => r.json()),
+      ])
       if (pendingData.code === 0) setPendingDeals(pendingData.data)
       if (prodData.code === 0) setProducts(prodData.data)
+      if (meData.code === 0) setMe(meData.data)
+      if (orderData.code === 0) setOrders(orderData.data)
     } catch {
       // ignore
     } finally {
@@ -238,7 +265,20 @@ export default function DashboardPage() {
       <Nav />
 
       <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
-        <h1 className="text-2xl font-bold text-slate-800 mb-6">我的主页</h1>
+        <h1 className="text-2xl font-bold text-slate-800 mb-2">我的主页</h1>
+
+        {/* ── 用户身份 ── */}
+        {me && (
+          <div className="mb-6 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 font-bold text-lg">
+              {(me.nickname || me.phone).charAt(0)}
+            </div>
+            <div>
+              <p className="font-semibold text-slate-800">{me.nickname || '用户'}</p>
+              <p className="text-sm text-slate-400">{me.phone}</p>
+            </div>
+          </div>
+        )}
 
         {/* ── Tabs ── */}
         <div className="flex flex-wrap gap-2 mb-6">
@@ -246,6 +286,7 @@ export default function DashboardPage() {
             { key: 'pending' as const, label: `待确认（${pendingDeals.length}）`, color: 'amber' },
             { key: 'selling' as const, label: `我的商品（${products.length}）`, color: 'amber' },
             { key: 'ai' as const, label: 'AI 操作', color: 'violet' },
+            { key: 'orders' as const, label: `我的订单（${orders.length}）`, color: 'emerald' },
           ]).map((t) => (
             <button
               key={t.key}
@@ -546,6 +587,59 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+
+        {/* ── 我的订单 ── */}
+        {tab === 'orders' && (
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            {orders.length === 0 ? (
+              <div className="p-12 text-center text-slate-500">
+                <div className="text-5xl mb-4">📦</div>
+                <p className="font-medium text-slate-700 mb-1">暂无订单</p>
+                <p className="text-sm text-slate-400">确认成交后，订单会出现在这里</p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {orders.map((order) => {
+                  const statusInfo: Record<string, { label: string; color: string; bg: string }> = {
+                    PENDING: { label: '待采购', color: 'text-amber-600', bg: 'bg-amber-50' },
+                    PURCHASED: { label: '已采购', color: 'text-sky-600', bg: 'bg-sky-50' },
+                    SHIPPED: { label: '已发货', color: 'text-blue-600', bg: 'bg-blue-50' },
+                    DELIVERED: { label: '已送达', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+                    FAILED: { label: '采购失败', color: 'text-red-600', bg: 'bg-red-50' },
+                    REFUNDED: { label: '已退款', color: 'text-slate-600', bg: 'bg-slate-100' },
+                  }
+                  const s = statusInfo[order.status] || { label: order.status, color: 'text-slate-500', bg: 'bg-slate-50' }
+                  return (
+                    <li key={order.id} className="p-4 hover:bg-slate-50/80">
+                      <div className="flex items-start gap-4">
+                        <div className="w-16 h-16 rounded-xl bg-slate-100 overflow-hidden flex-shrink-0">
+                          <img src={order.product.image} alt="" className="w-full h-full object-cover" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-slate-800 line-clamp-1">{order.product.title}</span>
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded ${s.color} ${s.bg} flex-shrink-0`}>{s.label}</span>
+                          </div>
+                          <p className="text-sm text-slate-500 mt-0.5">
+                            {order.role === 'buyer' ? '买入' : '卖出'} · 对方 {order.counterpart}
+                          </p>
+                          <div className="flex items-baseline gap-3 mt-1">
+                            <span className="text-emerald-600 font-bold text-lg">¥{order.price}</span>
+                            <span className="text-sm text-slate-400 line-through">¥{order.originalPrice}</span>
+                          </div>
+                        </div>
+                        <div className="text-xs text-slate-400 flex-shrink-0 text-right">
+                          {new Date(order.createdAt).toLocaleDateString('zh-CN')}
+                        </div>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+
       </main>
     </div>
   )

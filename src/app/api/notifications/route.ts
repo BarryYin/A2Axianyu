@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireUsableSecondMeAccess } from '@/lib/auth'
+import { addNote } from '@/lib/secondme'
 
 // GET /api/notifications?orderId=xxx - Get notifications for an order
-// POST /api/notifications/send - Send notification to buyer
+// POST /api/notifications - Create notification and push to buyer
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -41,8 +43,22 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // TODO: Integrate with SecondMe API to push to buyer's AI agent
-    // await sendSecondMeNotification(order.buyerId, message)
+    // Push to buyer's SecondMe AI agent
+    try {
+      const order = await db.order.findUnique({
+        where: { id: orderId },
+        include: { buyer: true, product: { select: { title: true } } },
+      })
+      if (order?.buyer?.accessToken) {
+        const access = await requireUsableSecondMeAccess(order.buyer)
+        if (access) {
+          const noteContent = `[订单通知] ${order.product.title} — ${message}`
+          await addNote(access.accessToken, noteContent)
+        }
+      }
+    } catch (pushError) {
+      console.error('Failed to push notification to buyer agent:', pushError)
+    }
 
     return NextResponse.json(notification, { status: 201 })
   } catch (error) {
