@@ -16,21 +16,27 @@ export async function OPTIONS() {
 /**
  * 本地模拟 AI 谈判逻辑 - 当 SecondMe 不可用时使用
  */
-function simulateBargain(productTitle: string, listPrice: number, minPrice?: number) {
-  // 买方 AI：根据价格决定是否购买，出价在 60%-90% 之间
-  const discount = 0.6 + Math.random() * 0.3 // 60%-90%
-  const suggestedPrice = Math.round(listPrice * discount)
+function simulateBargain(productTitle: string, listPrice: number, minPrice: number | undefined, buyerTargetPrice?: number) {
+  // 如果买家提供了期望价格，使用它作为上限
+  const maxPrice = buyerTargetPrice ?? listPrice
 
-  if (suggestedPrice < (minPrice ?? listPrice * 0.5)) {
+  // 买方 AI：根据期望价格出价，范围在期望价格的 90%-100%
+  // 这样不会超过买家的预期
+  const discount = 0.9 + Math.random() * 0.1 // 90%-100%
+  const suggestedPrice = Math.round(maxPrice * discount)
+
+  // 确保不低于卖家的最低价
+  const effectiveMin = minPrice ?? listPrice * 0.7
+  if (suggestedPrice < effectiveMin) {
     return {
-      suggestedPrice: suggestedPrice,
-      reason: `对产品感兴趣，出价 ¥${suggestedPrice}（${Math.round(discount * 100)}%）`,
+      suggestedPrice: Math.max(suggestedPrice, Math.round(effectiveMin)),
+      reason: `愿意购买 ${productTitle}，出价 ¥${Math.max(suggestedPrice, Math.round(effectiveMin))}（接近卖家底线）`,
     }
   }
 
   return {
     suggestedPrice,
-    reason: `愿意购买 ${productTitle}，出价 ¥${suggestedPrice}`,
+    reason: `愿意购买 ${productTitle}，出价 ¥${suggestedPrice}（在心理价位 ¥${buyerTargetPrice ?? listPrice} 范围内）`,
   }
 }
 
@@ -70,30 +76,32 @@ function simulateSellerDecision(
 
 function simulateBuyerResponse(
   listPrice: number,
-  sellerCounterPrice: number
+  sellerCounterPrice: number,
+  buyerTargetPrice?: number
 ): { decision: 'accept' | 'reject' | 'counter'; counterPrice?: number; reason: string } {
-  // 如果卖家还价在接受范围内（低于原价85%），接受
-  if (sellerCounterPrice <= listPrice * 0.85) {
+  // 如果卖家还价在买家期望价格范围内，接受
+  const maxAcceptable = buyerTargetPrice ?? listPrice * 0.85
+  if (sellerCounterPrice <= maxAcceptable) {
     return {
       decision: 'accept',
-      reason: `还价 ¥${sellerCounterPrice} 合理，接受！`,
+      reason: `还价 ¥${sellerCounterPrice} 在心理价位 ¥${buyerTargetPrice ?? Math.round(listPrice * 0.85)} 范围内，接受！`,
     }
   }
 
-  // 如果还价太高，有 50% 概率放弃，50% 概率继续还价
+  // 如果还价超过买家期望，有 50% 概率放弃，50% 概率继续还价（但不超过期望值）
   if (Math.random() > 0.5) {
     return {
       decision: 'reject',
-      reason: `还价 ¥${sellerCounterPrice} 仍偏高，放弃购买`,
+      reason: `还价 ¥${sellerCounterPrice} 超过心理价位 ¥${buyerTargetPrice ?? Math.round(listPrice * 0.85)}，放弃购买`,
     }
   }
 
-  // 继续还价
-  const counterPrice = Math.round(sellerCounterPrice * 0.9)
+  // 继续还价，但不超过买家期望值
+  const counterPrice = Math.min(Math.round(sellerCounterPrice * 0.95), maxAcceptable)
   return {
     decision: 'counter',
     counterPrice,
-    reason: `还价 ¥${sellerCounterPrice} 还是高了，再出价 ¥${counterPrice}`,
+    reason: `还价 ¥${sellerCounterPrice} 超过心理价位，再出价 ¥${counterPrice}`,
   }
 }
 
@@ -139,6 +147,17 @@ export async function POST(
 
   const seller = product.seller
 
+  // 获取买家的期望价格
+  let buyerTargetPrice: number | undefined
+  try {
+    const body = await request.json()
+    if (body.targetPrice && typeof body.targetPrice === 'number') {
+      buyerTargetPrice = body.targetPrice
+    }
+  } catch {
+    // 如果没有 body 或解析失败，继续 without targetPrice
+  }
+
   // 检查是否使用 SecondMe（可选）
   const buyerAccess = await requireUsableSecondMeAccess(actor.user)
   const sellerAccess = await requireUsableSecondMeAccess(seller)
@@ -161,7 +180,7 @@ export async function POST(
         minPrice,
       })
     } else {
-      firstBid = simulateBargain(productTitle, listPrice, minPrice)
+      firstBid = simulateBargain(productTitle, listPrice, minPrice, buyerTargetPrice)
     }
 
     // AI 不感兴趣（suggestedPrice 为 0 或 null）
@@ -270,7 +289,7 @@ export async function POST(
           sellerCounterPrice: counterPrice,
         })
       } else {
-        buyerRes = simulateBuyerResponse(listPrice, counterPrice)
+        buyerRes = simulateBuyerResponse(listPrice, counterPrice, buyerTargetPrice)
       }
 
       logs.push({

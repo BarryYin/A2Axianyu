@@ -51,6 +51,7 @@ export default function ProductPage() {
     reason?: string
     logs?: { role: string; action: string; price?: number; reason?: string }[]
   } | null>(null)
+  const [buyerTargetPrice, setBuyerTargetPrice] = useState('')
 
   useEffect(() => {
     if (!id) return
@@ -62,37 +63,6 @@ export default function ProductPage() {
       if (oRes.code === 0) setOffers(oRes.data)
     }).finally(() => setLoading(false))
   }, [id])
-
-  // 进入商品页后自动让 AI 判断要不要谈，要谈就直接谈（无需人点按钮）
-  useEffect(() => {
-    if (!id || !product || loading) return
-    const key = `auto_negotiate_${id}`
-    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(key)) return
-    const t = setTimeout(() => {
-      sessionStorage.setItem(key, '1')
-      setNegotiateLoading(true)
-      setError('')
-      setNegotiateResult(null)
-      fetch(`/api/products/${id}/negotiate`, { method: 'POST', credentials: 'include' })
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.code === 0) {
-            setNegotiateResult(data.data)
-            if (data.data?.outcome !== 'skipped') {
-              return fetch(`/api/products/${id}/offers`).then((o) => o.json())
-            }
-          } else {
-            setError(data.message || '谈价失败')
-          }
-        })
-        .then((oData) => {
-          if (oData?.code === 0) setOffers(oData.data)
-        })
-        .catch(() => setError('网络错误'))
-        .finally(() => setNegotiateLoading(false))
-    }, 1500)
-    return () => clearTimeout(t)
-  }, [id, product, loading])
 
   const handleSubmitOffer = async (e: React.FormEvent, usePrice?: number) => {
     e.preventDefault()
@@ -128,6 +98,11 @@ export default function ProductPage() {
 
   const handleAiNegotiate = async () => {
     if (!id) return
+    const targetPrice = parseFloat(buyerTargetPrice)
+    if (isNaN(targetPrice) || targetPrice <= 0) {
+      setError('请先输入您的期望价格')
+      return
+    }
     setNegotiateLoading(true)
     setError('')
     setNegotiateResult(null)
@@ -135,6 +110,8 @@ export default function ProductPage() {
       const res = await fetch(`/api/products/${id}/negotiate`, {
         method: 'POST',
         credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetPrice }),
       })
       const data = await res.json()
       if (data.code === 0) {
@@ -230,18 +207,39 @@ export default function ProductPage() {
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 sm:p-6">
           <h3 className="font-semibold text-slate-800 mb-3">出价 / 砍价</h3>
           {error && <p className="text-red-600 text-sm mb-3">{error}</p>}
-          {negotiateLoading && (
-            <p className="text-sm text-slate-500 mb-3">正在让 AI 看看要不要谈，若要谈会直接和卖家 AI 谈价…</p>
-          )}
+
+          {/* AI 谈价 - 买家输入期望价格 */}
+          <div className="mb-4 p-4 bg-amber-50 rounded-xl border border-amber-100">
+            <p className="text-sm text-slate-700 mb-3">
+              💡 输入您的心理价位，AI 会帮您在不超过此价格的情况下与卖家协商
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={buyerTargetPrice}
+                onChange={(e) => setBuyerTargetPrice(e.target.value)}
+                className="flex-1 border border-amber-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                placeholder="输入您的期望价格"
+              />
+              <button
+                type="button"
+                onClick={handleAiNegotiate}
+                disabled={negotiateLoading}
+                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium disabled:opacity-60 transition-colors"
+              >
+                {negotiateLoading ? '协商中…' : 'AI 帮谈'}
+              </button>
+            </div>
+            {negotiateLoading && (
+              <p className="text-xs text-slate-500 mt-2">
+                AI 正在与卖家协商，请稍候…
+              </p>
+            )}
+          </div>
+
           <div className="flex flex-wrap gap-2 mb-4">
-            <button
-              type="button"
-              onClick={() => { sessionStorage.removeItem(`auto_negotiate_${id}`); handleAiNegotiate() }}
-              disabled={negotiateLoading}
-              className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium disabled:opacity-60 transition-colors"
-            >
-              {negotiateLoading ? '…' : '重试 AI 谈价'}
-            </button>
             <button
               type="button"
               onClick={handleAiBargain}
