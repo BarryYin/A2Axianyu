@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import bcrypt from 'bcryptjs'
+import { cookies } from 'next/headers'
 
 export async function POST(req: NextRequest) {
   try {
@@ -43,6 +44,21 @@ export async function POST(req: NextRequest) {
         password: hashedPassword,
         nickname: nickname || `用户${phone.slice(-4)}`,
       }
+    })
+
+    // 自动设置 session cookie（注册即登录）
+    const cookieStore = await cookies()
+    cookieStore.set('session', JSON.stringify({
+      userId: user.id,
+      phone: user.phone,
+      nickname: user.nickname,
+      isPlatformSeller: user.isPlatformSeller,
+    }), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60,
+      path: '/',
     })
 
     return NextResponse.json({

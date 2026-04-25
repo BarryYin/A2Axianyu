@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 
 interface User {
   userId: string
@@ -15,21 +15,19 @@ export function Nav({ variant = 'default' }: { variant?: 'default' | 'minimal' }
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
+  const pathname = usePathname()
 
   useEffect(() => {
-    // 从 cookie 中读取 session
-    const cookies = document.cookie.split(';')
-    const sessionCookie = cookies.find(c => c.trim().startsWith('session='))
-    if (sessionCookie) {
-      try {
-        const sessionValue = decodeURIComponent(sessionCookie.split('=')[1])
-        const session = JSON.parse(sessionValue)
-        setUser(session)
-      } catch {
-        setUser(null)
-      }
-    }
-    setLoading(false)
+    // 通过 API 获取当前用户身份（session cookie 是 httpOnly，JS 读不到）
+    fetch('/api/me')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.code === 0) {
+          setUser(data.data)
+        }
+      })
+      .catch(() => setUser(null))
+      .finally(() => setLoading(false))
   }, [])
 
   const handleLogout = async () => {
@@ -55,7 +53,7 @@ export function Nav({ variant = 'default' }: { variant?: 'default' | 'minimal' }
         <nav className="flex items-center gap-1 sm:gap-3">
           <Link
             href="/marketplace"
-            className="px-3 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+            className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${pathname === '/marketplace' ? 'text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'}`}
           >
             市场
           </Link>
@@ -63,30 +61,31 @@ export function Nav({ variant = 'default' }: { variant?: 'default' | 'minimal' }
             <>
               <Link
                 href="/agents"
-                className="px-3 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+                className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${pathname === '/agents' ? 'text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'}`}
               >
                 Agent 接入
               </Link>
               <Link
                 href="/sell"
-                className="px-4 py-2 text-sm font-medium text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-sm transition-colors"
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${pathname === '/sell' ? 'text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'}`}
               >
                 发布
               </Link>
-              <Link
-                href="/dashboard"
-                className="px-3 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
-              >
-                我的
-              </Link>
+
             </>
           )}
 
-          {/* 登录/退出按钮 - 根据状态显示 */}
+          {/* 登录/用户区域 */}
           {!loading && (
             user ? (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-slate-500 hidden sm:inline">
+              <>
+                <Link
+                  href="/dashboard"
+                  className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${pathname === '/dashboard' ? 'text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'}`}
+                >
+                  我的
+                </Link>
+                <span className="text-sm text-slate-500 hidden sm:inline ml-1">
                   {user.nickname || user.phone}
                 </span>
                 <button
@@ -95,11 +94,11 @@ export function Nav({ variant = 'default' }: { variant?: 'default' | 'minimal' }
                 >
                   退出
                 </button>
-              </div>
+              </>
             ) : (
               <Link
                 href="/login"
-                className="px-4 py-2 text-sm font-medium text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-sm transition-colors"
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${pathname === '/login' ? 'text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'}`}
               >
                 登录
               </Link>
