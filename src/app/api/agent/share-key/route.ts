@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAgentApiKey, getCurrentUser, hashAgentApiKey } from '@/lib/auth'
 import { db } from '@/lib/db'
 
+// GET: 只返回用户现有的 active API Key，不创建新的
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser(request)
   if (!user) {
@@ -11,43 +12,53 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  // 查找用户已有的 active API Key
+  // 查找用户最新的 active API Key
   const existingClient = await db.agentClient.findFirst({
     where: {
       ownerUserId: user.id,
       status: 'active',
     },
-    orderBy: { lastUsedAt: 'desc' },
+    orderBy: { createdAt: 'desc' },
   })
 
   if (existingClient) {
-    // 如果有现有的，返回提示让用户去分享页面查看
-    // 但为了简化，我们创建一个新的专门用于分享
-    const apiKey = createAgentApiKey()
-    const newClient = await db.agentClient.create({
-      data: {
-        name: `分享用 ${new Date().toLocaleDateString()}`,
-        apiKeyHash: hashAgentApiKey(apiKey),
-        scopes: JSON.stringify(['products.read', 'products.write', 'offers.write']),
-        ownerUserId: user.id,
-      },
-    })
-
     return NextResponse.json({
       code: 0,
       data: {
-        apiKey,
-        clientId: newClient.id,
-        message: '已创建新的分享 API Key',
+        clientId: existingClient.id,
+        name: existingClient.name,
+        hasKey: true,
       },
     })
   }
 
-  // 如果没有现有的，创建一个
+  // 没有现有 key
+  return NextResponse.json({
+    code: 0,
+    data: {
+      hasKey: false,
+      message: '没有可用的 API Key，请先创建',
+    },
+  })
+}
+
+// POST: 创建新的 API Key
+export async function POST(request: NextRequest) {
+  const user = await getCurrentUser(request)
+  if (!user) {
+    return NextResponse.json(
+      { code: 401, message: '请先登录' },
+      { status: 401 }
+    )
+  }
+
+  const body = await request.json().catch(() => ({}))
+  const name = body.name || `分享用 ${new Date().toLocaleDateString()}`
+
   const apiKey = createAgentApiKey()
   const newClient = await db.agentClient.create({
     data: {
-      name: 'AI Agent',
+      name,
       apiKeyHash: hashAgentApiKey(apiKey),
       scopes: JSON.stringify(['products.read', 'products.write', 'offers.write']),
       ownerUserId: user.id,

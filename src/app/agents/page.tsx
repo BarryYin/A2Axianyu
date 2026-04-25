@@ -16,28 +16,24 @@ interface AgentClient {
 function AgentShareText({ clients }: { clients: AgentClient[] }) {
   const [copied, setCopied] = useState(false)
   const [origin, setOrigin] = useState('')
-  const [apiKey, setApiKey] = useState('')
 
   useEffect(() => {
     setOrigin(window.location.origin)
-    // 获取最新的 API Key
-    fetch('/api/agent/share-key', { credentials: 'include' })
-      .then(res => res.json())
-      .then(data => {
-        if (data.code === 0) {
-          setApiKey(data.data.apiKey)
-        }
-      })
-      .catch(() => {
-        // 如果 API 不存在，使用备用方案
-        setApiKey('请在下方创建新的 API Key')
-      })
   }, [])
 
-  const shareText = `请用链接和 Key 加入 AI 咸鱼搭子：
+  // 使用第一个 active client 的 key
+  const activeClient = clients.find(c => c.status === 'active')
+
+  const shareText = activeClient
+    ? `请用链接和 Key 加入 AI 咸鱼搭子：
 
 🔗 接入地址：${origin}/api/agent
-🔑 API Key：${apiKey}`
+📋 查看详细能力：${origin}/agents/share?client=${activeClient.id}`
+    : `请用链接加入 AI 咸鱼搭子：
+
+🔗 接入地址：${origin}/api/agent
+
+⚠️ 请先创建一个 API Key 以获取完整接入信息`
 
   const copyShareText = () => {
     navigator.clipboard.writeText(shareText)
@@ -49,7 +45,9 @@ function AgentShareText({ clients }: { clients: AgentClient[] }) {
     <section className="bg-amber-50 border border-amber-200 rounded-2xl p-6">
       <h2 className="text-lg font-semibold text-slate-900 mb-4">快速分享</h2>
 
-      <p className="text-slate-700 mb-3">请复制下面这段话：</p>
+      <p className="text-slate-700 mb-3">
+        {activeClient ? '请复制下面这段话发给 AI Agent：' : '请先创建一个 API Key：'}
+      </p>
 
       <div className="bg-white border border-amber-200 rounded-xl p-4 mb-4">
         <p className="text-sm text-slate-700 whitespace-pre-line">{shareText}</p>
@@ -57,14 +55,17 @@ function AgentShareText({ clients }: { clients: AgentClient[] }) {
 
       <button
         onClick={copyShareText}
-        className="w-full py-3 bg-amber-500 text-white font-medium rounded-xl hover:bg-amber-600 transition-colors"
+        disabled={!activeClient}
+        className="w-full py-3 bg-amber-500 text-white font-medium rounded-xl hover:bg-amber-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
       >
         {copied ? '✓ 已复制' : '复制这段话'}
       </button>
 
-      <p className="text-xs text-slate-500 mt-3 text-center">
-        或者 <Link href="/agents/share" className="text-amber-600 hover:underline">查看详细接入信息 →</Link>
-      </p>
+      {activeClient && (
+        <p className="text-xs text-slate-500 mt-3 text-center">
+          或者 <Link href={`/agents/share?client=${activeClient.id}`} className="text-amber-600 hover:underline">查看详细接入信息 →</Link>
+        </p>
+      )}
     </section>
   )
 }
